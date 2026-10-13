@@ -142,6 +142,10 @@
   @media (prefers-reduced-motion: reduce) { .spinner, .loader-steps li[data-state="active"]::before { animation-duration: 2.5s; } .track div { transition: none; } }
   .copy .spinner { width: 14px; height: 14px; }
 
+  .seg-2 { grid-template-columns: repeat(2, 1fr); }
+  .how p { margin: 0 0 6px; }
+  .how ol { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .how a { color: var(--accent); }
   .warn { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
   .warn h3 { margin: 0; font: 600 11px/1.2 var(--font-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
   .warn ul { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; }
@@ -193,11 +197,15 @@
 
       <section class="step" aria-labelledby="s3">
         <h2 id="s3"><b>3</b> Copy</h2>
+        <div class="seg seg-2" role="group" aria-label="Paste method">
+          <button type="button" data-mode="plugin" aria-pressed="true">Auto layout<small>via plugin</small></button>
+          <button type="button" data-mode="svg" aria-pressed="false">Direct paste<small>no auto layout</small></button>
+        </div>
         <button class="copy" id="copyBtn" type="button" disabled><span class="spinner" aria-hidden="true"></span>Preparing layers…</button>
         <div class="status" id="status" data-kind="busy" role="status">Rendering the sample…</div>
         <dl class="stats">
           <div><dt>Frame</dt><dd id="stFrame">–</dd></div>
-          <div><dt>Groups</dt><dd id="stGroups">–</dd></div>
+          <div><dt id="stGroupsLabel">Auto layout frames</dt><dd id="stGroups">–</dd></div>
           <div><dt>Text layers</dt><dd id="stText">–</dd></div>
           <div><dt>Images</dt><dd id="stImages">–</dd></div>
         </dl>
@@ -213,7 +221,19 @@
           <p class="notes">Your browser blocked the clipboard. The code below is selected: press <kbd>⌘C</kbd> or <kbd>Ctrl C</kbd>, then paste in Figma.</p>
           <textarea id="fallbackText" readonly></textarea>
         </div>
-        <p class="notes" style="margin:0">In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. Fonts need to be installed on your machine to show correctly.</p>
+        <div class="notes how" id="howPlugin">
+          <p>In Figma, run <strong>Plugins → Development → HTML to Figma Importer</strong> and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd> in its window. It builds frames with auto layout, gaps, padding and Fill/Hug sizing.</p>
+          <details>
+            <summary>One-time plugin setup</summary>
+            <ol>
+              <li>Download the <code>figma-plugin</code> folder from <a href="https://github.com/thomasandabove/testing/tree/claude/html-figma-copy-tool-05p5g1/html-to-figma/figma-plugin" target="_blank" rel="noopener">the GitHub repo</a>.</li>
+              <li>In the Figma desktop app, open any design file and choose <strong>Plugins → Development → Import plugin from manifest…</strong></li>
+              <li>Pick <code>manifest.json</code> from that folder. The plugin then stays in your Development menu.</li>
+            </ol>
+          </details>
+        </div>
+        <p class="notes how" id="howSvg" hidden>In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. Layers paste with fixed positions, without auto layout.</p>
+        <p class="notes" style="margin:0">Fonts need to be installed on your machine to show correctly.</p>
       </section>
 
       <details class="step notes">
@@ -312,7 +332,7 @@
 </div></body></html>`;
 
   const $ = (s) => document.querySelector(s);
-  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, scripts: false, scriptsTouched: false, svg: '', token: 0 };
+  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, mode: 'plugin', tree: '', result: null, scripts: false, scriptsTouched: false, svg: '', token: 0 };
   let previewUrl = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const SCRIPT_END = '<' + '/script>';
@@ -387,6 +407,7 @@
     const token = ++state.token;
     const check = () => { if (token !== state.token) throw new Cancelled(); };
     state.svg = '';
+    state.tree = '';
     setCopyState('busy');
     $('#fallback').hidden = true;
     $('#warnBox').hidden = true;
@@ -424,7 +445,10 @@
       await reveal(frame, (f) => { check(); progress('reveal', f); });
       progress('convert', 0);
       const bounds = state.fit ? contentBounds(frame.contentDocument, frame.contentWindow) : null;
-      const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f); }, bounds);
+      const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f * 0.45); }, bounds);
+      const tree = await htmlToFigmaTree(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', 0.45 + f * 0.55); }, bounds);
+      result.tree = tree;
+      state.tree = JSON.stringify(tree.tree);
       if (state.fit) $('#dims').textContent = `Fit content · ${result.width} × ${result.height}`;
       check();
       progress('convert', 1);
@@ -449,15 +473,28 @@
     try { const u = new URL(url); return u.protocol === 'about:' ? url : u.href.length > 90 ? u.host + '/…/' + u.pathname.split('/').pop() : u.href; } catch { return url; }
   };
 
-  function showResult(r, frame) {
+  function showStats() {
+    const r = state.result;
+    if (!r) return;
+    const plugin = state.mode === 'plugin';
+    const st = plugin ? r.tree.stats : r.stats;
+    const size = plugin ? state.tree.length : state.svg.length;
     $('#stFrame').textContent = `${r.width} × ${r.height}`;
-    $('#stGroups').textContent = r.stats.groups;
-    $('#stText').textContent = r.stats.text;
-    $('#stImages').textContent = r.stats.images;
-    setStatus('ok', `Ready. ${r.stats.groups + r.stats.text + r.stats.images} layers, ${Math.round(r.svg.length / 1024)} KB.`);
+    $('#stGroupsLabel').textContent = plugin ? 'Auto layout frames' : 'Groups';
+    $('#stGroups').textContent = plugin ? `${st.autoLayout} of ${st.frames}` : st.groups;
+    $('#stText').textContent = st.text;
+    $('#stImages').textContent = st.images;
+    setStatus('ok', plugin
+      ? `Ready. ${st.frames} frames, ${st.autoLayout} with auto layout, ${Math.round(size / 1024)} KB.`
+      : `Ready. ${st.groups + st.text + st.images} layers, ${Math.round(size / 1024)} KB.`);
+  }
+
+  function showResult(r, frame) {
+    state.result = r;
+    showStats();
     setCopyState('idle');
 
-    const fonts = [...r.fonts].sort();
+    const fonts = [...new Set([...r.fonts, ...r.tree.fonts])].sort();
     $('#fontsList').innerHTML = '';
     fonts.forEach((f) => { const s = document.createElement('span'); s.textContent = f; $('#fontsList').appendChild(s); });
     $('#fontsBox').hidden = !fonts.length;
@@ -468,11 +505,11 @@
     const loadedJs = new Set(win.__h2fLoaded || []);
     const stuck = state.scripts ? [...doc.querySelectorAll('script[src]')].filter((sc) => !loadedJs.has(sc.src)).map((sc) => sc.src) : [];
     const failed = new Set([...(win.__h2fFailed || []), ...sheets, ...stuck]);
-    const css = [...failed].filter((u) => /\.css(\?|$)/i.test(u) || sheets.includes(u));
-    const js = [...failed].filter((u) => !css.includes(u) && !/\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u));
+    const css = [...failed].filter((u) => (/\.css(\?|$)/i.test(u) || sheets.includes(u)) && !/fonts\.googleapis\.com/.test(u));
+    const js = [...failed].filter((u) => !css.includes(u) && !/fonts\.googleapis\.com/.test(u) && !/\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u));
     if (css.length) warnings.push(['Stylesheets that couldn\'t load, so the page is missing their styling. Download each one and upload it together with your HTML file:', css]);
     if (js.length) warnings.push(['Scripts that couldn\'t load, so parts of the page they build may be missing. Download each one and upload it together with your HTML file:', js]);
-    const missing = [...new Set(r.missing)];
+    const missing = [...new Set([...r.missing, ...r.tree.missing])];
     if (missing.length) warnings.push(['Images that couldn\'t be read, now grey placeholders. Upload them together with your HTML file:', missing]);
     if (!state.scripts && /<script\b/i.test(state.html)) warnings.push(['This page has scripts that were not run. Tick "Run the page\'s scripts" if content is missing.', []]);
     const list = $('#warnList');
@@ -496,22 +533,24 @@
   }
 
   $('#copyBtn').addEventListener('click', async () => {
-    if (!state.svg) return;
+    const payload = state.mode === 'plugin' ? state.tree : state.svg;
+    const done = state.mode === 'plugin' ? 'Copied. In Figma, open the HTML to Figma Importer plugin and press ⌘V / Ctrl V.' : 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.';
+    if (!payload) return;
     try {
-      await navigator.clipboard.writeText(state.svg);
-      setStatus('ok', 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.');
+      await navigator.clipboard.writeText(payload);
+      setStatus('ok', done);
       $('#fallback').hidden = true;
       flashCopied();
     } catch {
       const ta = $('#fallbackText');
-      ta.value = state.svg;
+      ta.value = payload;
       $('#fallback').hidden = false;
       ta.focus();
       ta.select();
       let ok = false;
       try { ok = document.execCommand('copy'); } catch {}
       if (ok) {
-        setStatus('ok', 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.');
+        setStatus('ok', done);
         $('#fallback').hidden = true;
         flashCopied();
       } else {
@@ -527,15 +566,27 @@
     copiedTimer = setTimeout(() => { if (state.svg) setCopyState('idle'); }, 2000);
   }
 
+  function selectMode(mode) {
+    state.mode = mode;
+    document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    $('#howPlugin').hidden = mode !== 'plugin';
+    $('#howSvg').hidden = mode !== 'svg';
+    $('#fallback').hidden = true;
+    showStats();
+    try { localStorage.setItem('h2f-mode', mode); } catch {}
+  }
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => selectMode(b.dataset.mode)));
+  try { const saved = localStorage.getItem('h2f-mode'); if (saved === 'svg' || saved === 'plugin') selectMode(saved); } catch {}
+
   function selectWidth(w) {
     state.fit = w === 'fit';
     if (!state.fit) state.width = w;
     $('#widthInput').value = state.width;
     $('#widthLabel').textContent = state.fit ? 'Base width (px)' : 'Width (px)';
     $('#sizeHint').hidden = !state.fit;
-    document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.w === String(w))));
+    document.querySelectorAll('[data-w]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.w === String(w))));
   }
-  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { selectWidth(b.dataset.w === 'fit' ? 'fit' : +b.dataset.w); render(); }));
+  document.querySelectorAll('[data-w]').forEach((b) => b.addEventListener('click', () => { selectWidth(b.dataset.w === 'fit' ? 'fit' : +b.dataset.w); render(); }));
   $('#widthInput').addEventListener('change', (e) => {
     const w = Math.round(Math.min(4000, Math.max(200, +e.target.value || 1440)));
     if (state.fit) { state.width = w; e.target.value = w; } else selectWidth(w);
@@ -693,6 +744,16 @@
     }
   }
 
+  // Resolves once the page has made no DOM changes for `ms`, or after `max`.
+  async function quiet(doc, ms, max) {
+    const start = performance.now();
+    let last = start;
+    const mo = new MutationObserver(() => { last = performance.now(); });
+    mo.observe(doc, { subtree: true, childList: true, attributes: true, characterData: true });
+    while (performance.now() - last < ms && performance.now() - start < max) await sleep(50);
+    mo.disconnect();
+  }
+
   function finishAnimations(doc) {
     if (!doc.getAnimations) return;
     for (const a of doc.getAnimations()) {
@@ -704,16 +765,21 @@
   async function reveal(frame, report) {
     const doc = frame.contentDocument, win = frame.contentWindow;
     const vh = win.innerHeight;
-    const total = Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0);
-    if (total > vh + 10) {
+    const pageHeight = () => Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0);
+    // Scroll through again if the page grew or shrank while revealing (late scripts, lazy content).
+    for (let pass = 0; pass < 3; pass++) {
+      const total = pageHeight();
+      if (total <= vh + 10) break;
       const steps = Math.min(60, Math.ceil((total - vh) / (vh * 0.75)));
       for (let i = 1; i <= steps; i++) {
-        win.scrollTo({ top: Math.round((total - vh) * (i / steps)), behavior: 'instant' });
+        win.scrollTo({ top: Math.round((pageHeight() - vh) * (i / steps)), behavior: 'instant' });
         await frames(win);
         await sleep(state.scripts ? 90 : 30);
-        report((i / steps) * 0.7);
+        report(((pass * steps + i) / (steps * 2)) * 0.7);
       }
       await sleep(state.scripts ? 300 : 50);
+      if (state.scripts) await quiet(doc, 400, 3000);
+      if (Math.abs(pageHeight() - total) <= 10) break;
     }
     win.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     await frames(win);
@@ -1004,7 +1070,8 @@
   }
   const stopTags = (stops) => stops.map((s) => `<stop offset="${num(s.o)}" stop-color="${hex(s.color)}"${s.color.a < 1 ? ` stop-opacity="${num(s.color.a)}"` : ''}/>`).join('');
 
-  function linearGradient(ctx, str, b) {
+  // Gradient geometry in page coordinates, shared by the SVG output and the auto layout output.
+  function linearGeom(ctx, str, b) {
     const parts = splitTop(str.slice(str.indexOf('(') + 1, str.lastIndexOf(')')));
     let angle = 180;
     const a = parts[0].match(/^(-?[\d.]+)(deg|turn|rad|grad)$/);
@@ -1020,12 +1087,11 @@
     const len = Math.abs(b.w * dx) + Math.abs(b.h * dy);
     const stops = parseStops(ctx, parts, len || 1);
     if (!stops) return null;
-    const cx = b.x + b.w / 2, cy = b.y + b.h / 2, id = defId(ctx, 'paint');
-    ctx.defs.push(`<linearGradient id="${id}" x1="${num(cx - (dx * len) / 2)}" y1="${num(cy - (dy * len) / 2)}" x2="${num(cx + (dx * len) / 2)}" y2="${num(cy + (dy * len) / 2)}" gradientUnits="userSpaceOnUse">${stopTags(stops)}</linearGradient>`);
-    return `url(#${id})`;
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    return { stops, x1: cx - (dx * len) / 2, y1: cy - (dy * len) / 2, x2: cx + (dx * len) / 2, y2: cy + (dy * len) / 2 };
   }
 
-  function radialGradient(ctx, str, b) {
+  function radialGeom(ctx, str, b) {
     const parts = splitTop(str.slice(str.indexOf('(') + 1, str.lastIndexOf(')')));
     let px = 0.5, py = 0.5, circle = false;
     if (!COLOR_START.test(parts[0]) || /\b(at|circle|ellipse|closest|farthest)\b/.test(parts[0])) {
@@ -1048,8 +1114,22 @@
     else { rx = fx * Math.SQRT2; ry = fy * Math.SQRT2; }
     const stops = parseStops(ctx, parts, rx || 1);
     if (!stops || !rx || !ry) return null;
+    return { stops, cx, cy, rx, ry };
+  }
+
+  function linearGradient(ctx, str, b) {
+    const g = linearGeom(ctx, str, b);
+    if (!g) return null;
     const id = defId(ctx, 'paint');
-    ctx.defs.push(`<radialGradient id="${id}" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(${num(cx)} ${num(cy)}) scale(${num(rx)} ${num(ry)})">${stopTags(stops)}</radialGradient>`);
+    ctx.defs.push(`<linearGradient id="${id}" x1="${num(g.x1)}" y1="${num(g.y1)}" x2="${num(g.x2)}" y2="${num(g.y2)}" gradientUnits="userSpaceOnUse">${stopTags(g.stops)}</linearGradient>`);
+    return `url(#${id})`;
+  }
+
+  function radialGradient(ctx, str, b) {
+    const g = radialGeom(ctx, str, b);
+    if (!g) return null;
+    const id = defId(ctx, 'paint');
+    ctx.defs.push(`<radialGradient id="${id}" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(${num(g.cx)} ${num(g.cy)}) scale(${num(g.rx)} ${num(g.ry)})">${stopTags(g.stops)}</radialGradient>`);
     return `url(#${id})`;
   }
 
@@ -1584,6 +1664,636 @@
     } finally {
       if (restore) restore();
     }
+  }
+
+  // ---------- Auto layout: rendered DOM → layout tree that the Figma plugin builds ----------
+
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const solid = (c) => ({ type: 'SOLID', color: { r: r2(c.r / 255), g: r2(c.g / 255), b: r2(c.b / 255) }, opacity: r2(c.a) });
+  const NOT_TEXT = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'input', 'textarea', 'select']);
+
+  // Figma positions gradients with a transform from the node's 0–1 space to gradient space.
+  function invert(a, b, c, d, e, f) {
+    const det = a * d - b * c || 1e-9;
+    const ia = d / det, ib = -b / det, ic = -c / det, id = a / det;
+    return [[ia, ic, -(ia * e + ic * f)], [ib, id, -(ib * e + id * f)]].map((row) => row.map((v) => Math.round(v * 10000) / 10000));
+  }
+  function figmaGradient(ctx, layer, src, T) {
+    const stopsOut = (stops) => stops.map((s) => ({ position: r2(s.o), color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) } }));
+    if (/linear-gradient/.test(layer)) {
+      const g = linearGeom(ctx, layer, src);
+      if (!g) return null;
+      const p0 = { x: (g.x1 - T.x) / T.w, y: (g.y1 - T.y) / T.h }, p1 = { x: (g.x2 - T.x) / T.w, y: (g.y2 - T.y) / T.h };
+      const DX = g.x2 - g.x1, DY = g.y2 - g.y1;
+      const a = p1.x - p0.x, b = p1.y - p0.y, c = -DY / T.w, d = DX / T.h;
+      return { type: 'GRADIENT_LINEAR', gradientTransform: invert(a, b, c, d, p0.x - c / 2, p0.y - d / 2), gradientStops: stopsOut(g.stops) };
+    }
+    const g = radialGeom(ctx, layer, src);
+    if (!g) return null;
+    const rx = g.rx / T.w, ry = g.ry / T.h;
+    return { type: 'GRADIENT_RADIAL', gradientTransform: invert(2 * rx, 0, 0, 2 * ry, (g.cx - T.x) / T.w - rx, (g.cy - T.y) / T.h - ry), gradientStops: stopsOut(g.stops) };
+  }
+
+  // Images travel once in the payload; paints point at them by id.
+  async function imageRef(ctx, data) {
+    let url = data.url;
+    if (!/^data:image\/(png|jpe?g);base64,/i.test(url)) {
+      const src = data.img;
+      const c = document.createElement('canvas');
+      c.width = src.width || src.naturalWidth || 1; c.height = src.height || src.naturalHeight || 1;
+      c.getContext('2d').drawImage(src, 0, 0);
+      url = c.toDataURL('image/png');
+    }
+    if (!ctx.imageIds.has(url)) {
+      const id = 'img' + ctx.imageIds.size;
+      ctx.imageIds.set(url, id);
+      ctx.payloadImages[id] = url.slice(url.indexOf(',') + 1);
+    }
+    return ctx.imageIds.get(url);
+  }
+  const pixelWidth = (data) => (data.img && (data.img.width || data.img.naturalWidth)) || data.w;
+
+  async function imageFill(ctx, src, w, h, fit) {
+    const data = await loadImage(ctx, src, w, h);
+    if (!data) return null;
+    ctx.stats.images++;
+    const scaleMode = fit === 'contain' || fit === 'scale-down' ? 'FIT' : 'FILL';
+    return { type: 'IMAGE', imageRef: await imageRef(ctx, data), scaleMode };
+  }
+
+  function rasterText(ctx, cs, text, w, h) {
+    const scale = 4, c = ctx.doc.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w * scale)); c.height = Math.max(1, Math.ceil(h * scale));
+    const g = c.getContext('2d');
+    g.scale(scale, scale);
+    g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    g.fillStyle = cs.color;
+    g.textBaseline = 'middle';
+    g.fillText(text, 0, h / 2);
+    return c.toDataURL('image/png');
+  }
+
+  async function boxPaints(ctx, el, cs, b) {
+    const out = { fills: [], effects: [] };
+    const propagated = el === ctx.doc.body && ctx.bodyPropagated;
+    const clipText = cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text';
+    const layers = !propagated && cs.backgroundImage && cs.backgroundImage !== 'none' ? splitTop(cs.backgroundImage) : [];
+    if (clipText) {
+      const layer = layers.find((l) => /gradient/.test(l));
+      if (layer) ctx.textGrads.set(el, { layer, box: b });
+    } else {
+      const bg = propagated ? null : parseColor(ctx, cs.backgroundColor);
+      if (bg) out.fills.push(solid(bg));
+      for (let i = layers.length - 1; i >= 0; i--) {
+        const layer = layers[i];
+        const size = (splitTop(cs.backgroundSize)[i] || 'auto').trim();
+        const repeat = (splitTop(cs.backgroundRepeat)[i] || 'repeat').trim();
+        if (/gradient/.test(layer)) {
+          const [sw, sh = sw] = size.split(/\s+/);
+          const val = (v, dim) => (v === 'auto' || v === 'cover' || v === 'contain' ? dim : /%$/.test(v) ? (parseFloat(v) / 100) * dim : parseFloat(v));
+          const tw = val(sw, b.w), th = val(sh, b.h);
+          if (tw > 0 && th > 0 && (tw < b.w - 0.5 || th < b.h - 0.5) && repeat !== 'no-repeat') {
+            // Small repeating gradients (dot grids, stripes) become a tiled image.
+            const tmp = Object.create(ctx); tmp.defs = [];
+            const fill = /linear/.test(layer) ? linearGradient(tmp, layer, { x: 0, y: 0, w: tw, h: th }) : radialGradient(tmp, layer, { x: 0, y: 0, w: tw, h: th });
+            ctx.n = tmp.n;
+            if (!fill) continue;
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(tw)}" height="${num(th)}"><defs>${tmp.defs.join('')}</defs><rect width="${num(tw)}" height="${num(th)}" fill="${fill}"/></svg>`;
+            const data = await loadImage(ctx, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), tw, th);
+            if (data) out.fills.push({ type: 'IMAGE', imageRef: await imageRef(ctx, data), scaleMode: 'TILE', scalingFactor: r2(tw / pixelWidth(data)) });
+            continue;
+          }
+          const paint = figmaGradient(ctx, layer, b, b);
+          if (paint) out.fills.push(paint);
+        } else {
+          const m = layer.match(/url\(\s*["']?(.*?)["']?\s*\)/);
+          if (!m) continue;
+          const data = await loadImage(ctx, m[1], b.w, b.h);
+          if (!data) { ctx.missing.push(m[1]); out.fills.push(solid({ r: 217, g: 217, b: 217, a: 1 })); continue; }
+          ctx.stats.images++;
+          const ref = await imageRef(ctx, data);
+          if (size === 'cover' || size === 'contain') out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: size === 'cover' ? 'FILL' : 'FIT' });
+          else if (repeat !== 'no-repeat' && data.w < b.w) {
+            const tw = size === 'auto' || size === 'auto auto' ? data.w : parseFloat(size) || data.w;
+            out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: 'TILE', scalingFactor: r2(tw / pixelWidth(data)) });
+          } else out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: 'FILL' });
+        }
+      }
+    }
+    const sides = ['Top', 'Right', 'Bottom', 'Left'].map((s) => ({
+      w: parseFloat(cs[`border${s}Width`]) || 0, style: cs[`border${s}Style`], c: parseColor(ctx, cs[`border${s}Color`]),
+    })).map((s) => (s.w > 0 && s.c && s.style !== 'none' && s.style !== 'hidden' ? s : null));
+    const first = sides.find(Boolean);
+    if (first) {
+      out.strokes = [solid(first.c)];
+      out.strokeWeights = sides.map((s) => (s ? r2(s.w) : 0));
+      if (first.style === 'dashed') out.dash = [first.w * 3, first.w * 2];
+      if (first.style === 'dotted') out.dash = [first.w, first.w];
+    }
+    const r = radiiOf(cs, b.w, b.h).map(r2);
+    if (r.some(Boolean)) out.radii = r;
+    for (const s of parseShadows(ctx, cs.boxShadow)) {
+      out.effects.push({ type: s.inset ? 'INNER_SHADOW' : 'DROP_SHADOW', color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) }, offset: { x: s.x, y: s.y }, radius: s.blur, spread: s.spread });
+    }
+    const blur = (cs.backdropFilter || cs.webkitBackdropFilter || '').match(/blur\(([\d.]+)px\)/);
+    if (blur) out.effects.push({ type: 'BACKGROUND_BLUR', radius: parseFloat(blur[1]) });
+    const lblur = (cs.filter || '').match(/blur\(([\d.]+)px\)/);
+    if (lblur) out.effects.push({ type: 'LAYER_BLUR', radius: parseFloat(lblur[1]) });
+    if (!out.effects.length) delete out.effects;
+    return out;
+  }
+
+  const hasPaint = (n) => !!((n.fills && n.fills.length) || n.strokes || n.effects || n.opacity < 1 || n.clips || n.transform);
+
+  // ----- text -----
+
+  function textStyle(ctx, el, cs) {
+    const family = figmaFont(cs.fontFamily);
+    ctx.fonts.add(family);
+    const deco = /underline/.test(cs.textDecorationLine) ? 'UNDERLINE' : /line-through/.test(cs.textDecorationLine) ? 'STRIKETHROUGH' : null;
+    const st = {
+      family, weight: parseInt(cs.fontWeight, 10) || 400, italic: cs.fontStyle !== 'normal', size: r2(parseFloat(cs.fontSize)),
+      ls: r2(parseFloat(cs.letterSpacing) || 0), lh: cs.lineHeight === 'normal' ? null : r2(parseFloat(cs.lineHeight)),
+      deco, textCase: { uppercase: 'UPPER', lowercase: 'LOWER', capitalize: 'TITLE' }[cs.textTransform] || null,
+    };
+    const c = parseColor(ctx, cs.webkitTextFillColor) || parseColor(ctx, cs.color);
+    if (c) st.fill = solid(c);
+    else for (let p = el; p && p.nodeType === 1; p = p.parentElement) if (ctx.textGrads.has(p)) { st.gradFrom = p; break; }
+    const a = el.closest && el.closest('a[href]');
+    if (a && /^https?:/.test(a.href)) st.href = a.href;
+    return st;
+  }
+  const styleKey = (s) => JSON.stringify([s.family, s.weight, s.italic, s.size, s.ls, s.lh, s.deco, s.textCase, s.fill, s.href, s.gradFrom ? 1 : 0]);
+
+  // Pure inline content (text, <b>, <a>, <em>…) becomes one text layer with styled ranges.
+  function inlineOnly(ctx, el) {
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 1 || n.localName === 'br' || SKIP.has(n.localName)) continue;
+      const c = ctx.win.getComputedStyle(n);
+      if (c.display === 'none') continue;
+      if (c.display !== 'inline' || NOT_TEXT.has(n.localName) || n.shadowRoot) return false;
+      const clipText = c.backgroundClip === 'text' || c.webkitBackgroundClip === 'text';
+      if (clipText) boxPaints(ctx, n, c, n.getBoundingClientRect());
+      if (parseColor(ctx, c.backgroundColor) || (c.backgroundImage !== 'none' && !clipText) || parseFloat(c.borderTopWidth) || parseFloat(c.borderLeftWidth)
+        || parseFloat(c.paddingLeft) || parseFloat(c.paddingTop) || (c.boxShadow && c.boxShadow !== 'none')) return false;
+      if (!inlineOnly(ctx, n)) return false;
+    }
+    return true;
+  }
+
+  function textRuns(ctx, el, onlyNode) {
+    const pieces = [];
+    const add = (str, parent) => {
+      const pcs = ctx.win.getComputedStyle(parent);
+      if (pcs.visibility !== 'visible') return;
+      const pre = /^(pre|pre-wrap|break-spaces)$/.test(pcs.whiteSpace);
+      let t = pre ? str : str.replace(/\s+/g, ' ');
+      const prev = pieces.length ? pieces[pieces.length - 1].t : '';
+      if (!pre && (prev === '' || /[ \n]$/.test(prev)) && t.startsWith(' ')) t = t.slice(1);
+      if (t) pieces.push({ t, st: textStyle(ctx, parent, pcs), el: parent });
+    };
+    const walkText = (node) => {
+      for (const n of node.childNodes) {
+        if (n.nodeType === 3) add(n.nodeValue, node);
+        else if (n.nodeType === 1 && n.localName === 'br') {
+          if (pieces.length) { const last = pieces[pieces.length - 1]; last.t = last.t.replace(/ $/, '') + '\n'; }
+        } else if (n.nodeType === 1 && !SKIP.has(n.localName) && ctx.win.getComputedStyle(n).display !== 'none') walkText(n);
+      }
+    };
+    if (onlyNode) add(onlyNode.nodeValue, el); else walkText(el);
+    if (!pieces.length) return null;
+    pieces[pieces.length - 1].t = pieces[pieces.length - 1].t.replace(/[ \n]+$/, '');
+    const merged = [];
+    for (const p of pieces) {
+      if (!p.t) continue;
+      const last = merged[merged.length - 1];
+      if (last && styleKey(last.st) === styleKey(p.st)) last.t += p.t; else merged.push({ ...p });
+    }
+    const text = merged.map((p) => p.t).join('');
+    return text.trim() ? { text, runs: merged } : null;
+  }
+
+  function lineRects(ctx, target) {
+    const range = ctx.doc.createRange();
+    if (target.nodeType === 3) range.selectNodeContents(target); else range.selectNodeContents(target);
+    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+    const tops = [];
+    for (const r of rects) if (!tops.some((t) => Math.abs(t - r.top) < r.height * 0.5)) tops.push(r.top);
+    return { rects, lines: tops.length };
+  }
+
+  function makeText(ctx, el, cs, data, geom) {
+    const { rects, lines } = geom;
+    if (!rects.length) return null;
+    const sx = ctx.sx, sy = ctx.sy;
+    let x = Math.min(...rects.map((r) => r.left)) + sx, right = Math.max(...rects.map((r) => r.right)) + sx;
+    let y = Math.min(...rects.map((r) => r.top)) + sy, bottom = Math.max(...rects.map((r) => r.bottom)) + sy;
+    const align = { center: 'CENTER', right: 'RIGHT', end: 'RIGHT', justify: 'JUSTIFIED' }[cs.textAlign] || 'LEFT';
+    const block = geom.box;
+    // Text boxes span whole line boxes (half-leading above and below), like Figma's text layers.
+    const lh = parseFloat(cs.lineHeight);
+    const glyphH = Math.max(...rects.map((r) => r.height));
+    if (lh && lh > glyphH) { const half = (lh - glyphH) / 2; y -= half; bottom += half; }
+    if (block) { y = Math.max(block.y, y); bottom = Math.min(block.y + block.h, bottom) || bottom; }
+    let sizing = 'HUG';
+    if ((lines > 1 || align !== 'LEFT') && block) { x = block.x; right = block.x + block.w; sizing = 'FIXED'; }
+    else if (lines > 1) sizing = 'FIXED';
+    const node = { type: 'TEXT', name: data.text.slice(0, 40).replace(/\s+/g, ' '), x: r2(x), y: r2(y), w: r2(right - x), h: r2(bottom - y), text: data.text, align, sizing };
+    const T = { x: node.x, y: node.y, w: node.w || 1, h: node.h || 1 };
+    node.segments = data.runs.map((p) => {
+      const st = { ...p.st, len: p.t.length };
+      if (st.gradFrom) {
+        const g = ctx.textGrads.get(st.gradFrom);
+        st.fill = figmaGradient(ctx, g.layer, g.box, T) || solid({ r: 0, g: 0, b: 0, a: 1 });
+        delete st.gradFrom;
+      }
+      if (!st.fill) st.fill = solid({ r: 0, g: 0, b: 0, a: 1 });
+      return st;
+    });
+    const shadows = parseShadows(ctx, cs.textShadow).filter((s) => !s.inset);
+    if (shadows.length) node.effects = shadows.map((s) => ({ type: 'DROP_SHADOW', color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) }, offset: { x: s.x, y: s.y }, radius: s.blur, spread: 0 }));
+    ctx.stats.text++;
+    // Icon fonts would arrive as empty boxes: ship the glyphs as a picture instead.
+    if (data.runs.every((p) => ICON_FONT.test(ctx.win.getComputedStyle(p.el).fontFamily)) || PUA.test(data.text)) {
+      ctx.stats.text--;
+      return (async () => {
+        const url = rasterText(ctx, ctx.win.getComputedStyle(data.runs[0].el), data.text.trim(), node.w, node.h);
+        ctx.stats.images++;
+        return { type: 'FRAME', name: 'icon', x: node.x, y: node.y, w: node.w, h: node.h, fills: [{ type: 'IMAGE', imageRef: await imageRef(ctx, { url }), scaleMode: 'FIT' }] };
+      })();
+    }
+    return node;
+  }
+
+  function contentBox(cs, b) {
+    const l = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0);
+    const t = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0);
+    const r = (parseFloat(cs.borderRightWidth) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const bt = (parseFloat(cs.borderBottomWidth) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    return { x: b.x + l, y: b.y + t, w: b.w - l - r, h: b.h - t - bt };
+  }
+  const padsOf = (cs) => ({
+    t: (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0), r: (parseFloat(cs.borderRightWidth) || 0) + (parseFloat(cs.paddingRight) || 0),
+    b: (parseFloat(cs.borderBottomWidth) || 0) + (parseFloat(cs.paddingBottom) || 0), l: (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0),
+  });
+
+  // ----- layout inference -----
+
+  const TOL = 1.5;
+  function inferLayout(node, info) {
+    const flow = node.children.filter((k) => !k.absolute);
+    if (!flow.length) return null;
+    const P = info.P;
+    let mode = null, wrap = false;
+    if (info.forceMode) mode = info.forceMode;
+    else if (info.flex) { mode = info.flex.column ? 'V' : 'H'; wrap = !info.flex.column && info.flex.wrap; }
+    else if (info.grid) { if (info.grid.cols <= 1) mode = 'V'; else { mode = 'H'; wrap = true; } }
+    else if (flow.length === 1 || stacked(flow, 'V')) mode = 'V';
+    else if (stacked(flow, 'H')) mode = 'H';
+    if (!mode) return null;
+    if (wrap) {
+      const rows = rowsOf(flow);
+      if (rows.length === 1) wrap = false;
+      else if (rows.every((r) => r.length === 1)) { mode = 'V'; wrap = false; }
+      else return inferWrap(node, flow, rows, P, info);
+    }
+    const A = mode === 'V'
+      ? { s: 'y', z: 'h', c: 'x', cz: 'w', p0: 't', p1: 'b', c0: 'l', c1: 'r' }
+      : { s: 'x', z: 'w', c: 'y', cz: 'h', p0: 'l', p1: 'r', c0: 't', c1: 'b' };
+    const items = flow.slice().sort((a, b) => a[A.s] - b[A.s]);
+    if (!stacked(items, mode)) return null;
+
+    const gaps = items.slice(1).map((it, i) => it[A.s] - (items[i][A.s] + items[i][A.z]));
+    const uniform = !gaps.length || Math.max(...gaps) - Math.min(...gaps) <= TOL;
+    const justify = info.flex ? info.flex.justify : 'normal';
+    let primaryAlign = 'MIN', gap = 0;
+    if (uniform) gap = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0;
+    else if (/space-(between|around|evenly)/.test(justify)) primaryAlign = 'SPACE_BETWEEN';
+    else {
+      // Uneven spacing (CSS margins): split at the largest gap into nested stacks, each with one even gap.
+      const maxG = Math.max(...gaps);
+      const segs = [[items[0]]];
+      gaps.forEach((g, i) => { if (Math.abs(g - maxG) <= TOL) segs.push([items[i + 1]]); else segs[segs.length - 1].push(items[i + 1]); });
+      const grouped = segs.map((seg) => (seg.length === 1 ? seg[0] : stackOf(seg, mode, info)));
+      if (grouped.some((g) => !g)) return null;
+      node.children = [...node.children.filter((k) => k.absolute), ...grouped];
+      return inferLayout(node, info);
+    }
+
+    // Cross axis: the alignment every child agrees with, and which children stretch.
+    const box0 = node[A.c], size = node[A.cz];
+    const offs = items.map((it) => ({ L: it[A.c] - box0, R: box0 + size - (it[A.c] + it[A.cz]), z: it[A.cz] }));
+    const minL = Math.min(...offs.map((o) => o.L)), minR = Math.min(...offs.map((o) => o.R));
+    // Prefer alignment against the CSS padding box; fall back to the measured edges.
+    const cP0 = P[A.c0], cP1 = P[A.c1];
+    const allMin = offs.every((o) => Math.abs(o.L - minL) <= TOL);
+    const allMax = offs.every((o) => Math.abs(o.R - minR) <= TOL);
+    const allCenter = offs.every((o) => Math.abs((o.L - minL) - (o.R - minR)) <= TOL);
+    const centredInBox = offs.every((o) => Math.abs((o.L - cP0) - (o.R - cP1)) <= TOL);
+    let counterAlign, padA, padB;
+    if (allMin && Math.abs(minL - cP0) <= TOL) { counterAlign = 'MIN'; padA = cP0; padB = cP1; }
+    else if (allCenter && centredInBox && minL > cP0 + TOL) { counterAlign = 'CENTER'; padA = cP0; padB = cP1; }
+    else if (allMin) { counterAlign = 'MIN'; padA = minL; padB = Math.min(cP1, minR); }
+    else if (allMax && Math.abs(minR - cP1) <= TOL) { counterAlign = 'MAX'; padA = cP0; padB = cP1; }
+    else if (allCenter) { counterAlign = 'CENTER'; padA = minL; padB = minR; }
+    else if (allMax) { counterAlign = 'MAX'; padB = minR; padA = Math.min(cP0, minL); }
+    else return null;
+    // Children spanning the cross axis become Fill (except text that simply hugs its words).
+    const stretch = new Set(items.filter((it, i) => Math.abs(offs[i].L - padA) <= TOL && Math.abs(offs[i].R - padB) <= TOL && !(it.type === 'TEXT' && it.sizing === 'HUG')));
+    const maxCross = Math.max(...items.map((it) => it[A.cz]));
+    const hugCross = !stretch.size && size - padA - padB - maxCross <= TOL;
+
+    // Primary axis: padding, alignment and whether the frame hugs its content.
+    const last = items[items.length - 1];
+    const startGap = items[0][A.s] - node[A.s], endGap = node[A.s] + node[A.z] - (last[A.s] + last[A.z]);
+    let padStart = startGap, padEnd = endGap, hugPrimary = false;
+    if (primaryAlign === 'SPACE_BETWEEN') { /* fixed size, edges from geometry */ }
+    else if (/center/.test(justify) || (Math.abs(startGap - endGap) <= TOL && startGap > P[A.p0] + 4)) {
+      const content = last[A.s] + last[A.z] - items[0][A.s];
+      const expected = P[A.p0] + (node[A.z] - P[A.p0] - P[A.p1] - content) / 2;
+      if (Math.abs(expected - startGap) <= TOL) { primaryAlign = 'CENTER'; padStart = P[A.p0]; padEnd = P[A.p1]; }
+      else hugPrimary = true;
+    } else if (/end/.test(justify)) { primaryAlign = 'MAX'; padStart = Math.min(P[A.p0], startGap); }
+    else if (endGap - P[A.p1] > TOL) padEnd = Math.min(P[A.p1], endGap);
+    else hugPrimary = true;
+
+    const pad = mode === 'V' ? { t: padStart, b: padEnd, l: padA, r: padB } : { l: padStart, r: padEnd, t: padA, b: padB };
+    for (const it of items) {
+      it.lp = {};
+      if (stretch.has(it)) it.lp.crossFill = true;
+      if (info.flex && it.flexGrow > 0) it.lp.grow = true;
+    }
+    reorder(node, items);
+    return { mode: mode === 'V' ? 'VERTICAL' : 'HORIZONTAL', gap, pad: roundPad(pad), primaryAlign, counterAlign, hugPrimary, hugCross };
+  }
+
+  function stackOf(items, mode, info) {
+    const x = Math.min(...items.map((i) => i.x)), y = Math.min(...items.map((i) => i.y));
+    const right = Math.max(...items.map((i) => i.x + i.w)), bottom = Math.max(...items.map((i) => i.y + i.h));
+    const g = { type: 'FRAME', name: 'Stack', x: r2(x), y: r2(y), w: r2(right - x), h: r2(bottom - y), fills: [], children: items };
+    g.layout = inferLayout(g, { P: { t: 0, r: 0, b: 0, l: 0 }, forceMode: mode, flex: info.flex ? { ...info.flex, justify: 'normal' } : null });
+    return g.layout ? g : null;
+  }
+
+  // Fill only works where the parent has a fixed size on that axis; drop it where the parent hugs.
+  function settleSizing(node, fillW, fillH) {
+    const L = node.layout;
+    if (node.type !== 'FRAME') return;
+    if (L) {
+      const H = L.mode === 'HORIZONTAL';
+      const hugW = H ? L.hugPrimary : L.hugCross, hugH = H ? L.hugCross : L.hugPrimary;
+      const fixedW = !hugW || fillW, fixedH = !hugH || fillH;
+      for (const c of node.children) {
+        if (c.absolute || !c.lp) continue;
+        const wantW = H ? c.lp.grow : c.lp.crossFill, wantH = H ? c.lp.crossFill : c.lp.grow;
+        if (wantW && !fixedW) { if (H) delete c.lp.grow; else delete c.lp.crossFill; }
+        if (wantH && !fixedH) { if (H) delete c.lp.crossFill; else delete c.lp.grow; }
+        const lp = c.lp || {};
+        settleSizing(c, H ? !!lp.grow : !!lp.crossFill, H ? !!lp.crossFill : !!lp.grow);
+      }
+    } else for (const c of node.children || []) settleSizing(c, false, false);
+  }
+
+  const roundPad = (p) => ({ t: Math.max(0, r2(p.t)), r: Math.max(0, r2(p.r)), b: Math.max(0, r2(p.b)), l: Math.max(0, r2(p.l)) });
+
+  function stacked(items, mode) {
+    const s = mode === 'V' ? 'y' : 'x', z = mode === 'V' ? 'h' : 'w';
+    const sorted = items.slice().sort((a, b) => a[s] - b[s]);
+    for (let i = 1; i < sorted.length; i++) if (sorted[i][s] < sorted[i - 1][s] + sorted[i - 1][z] - TOL) return false;
+    return true;
+  }
+
+  function rowsOf(items) {
+    const rows = [];
+    for (const it of items.slice().sort((a, b) => a.y - b.y || a.x - b.x)) {
+      const row = rows.find((r) => Math.abs(r[0].y - it.y) <= 2);
+      if (row) row.push(it); else rows.push([it]);
+    }
+    rows.forEach((r) => r.sort((a, b) => a.x - b.x));
+    return rows;
+  }
+
+  function inferWrap(node, flow, rows, P, info) {
+    const colGaps = rows.flatMap((r) => r.slice(1).map((it, i) => it.x - (r[i].x + r[i].w)));
+    const rowGaps = rows.slice(1).map((r, i) => Math.min(...r.map((it) => it.y)) - Math.max(...rows[i].map((it) => it.y + it.h)));
+    const even = (g) => !g.length || Math.max(...g) - Math.min(...g) <= TOL;
+    if (!even(colGaps) || !even(rowGaps)) return null;
+    const avg = (g) => (g.length ? Math.round(g.reduce((a, b) => a + b, 0) / g.length) : 0);
+    const items = rows.flat();
+    const left = Math.min(...items.map((it) => it.x)) - node.x;
+    if (!items.every((it) => rows.some((r) => r[0] === it) ? Math.abs(it.x - node.x - left) <= TOL : true)) return null;
+    const top = rows[0][0].y - node.y;
+    const bottom = node.y + node.h - Math.max(...items.map((it) => it.y + it.h));
+    items.forEach((it) => { it.lp = {}; });
+    reorder(node, items);
+    return {
+      mode: 'HORIZONTAL', wrap: true, gap: avg(colGaps), crossGap: avg(rowGaps), primaryAlign: 'MIN', counterAlign: 'MIN',
+      pad: roundPad({ t: top, l: left, r: P.r, b: bottom }), hugPrimary: false, hugCross: bottom - P.b <= TOL,
+    };
+  }
+
+  // In-flow children in visual order; absolutely positioned ones keep their stacking order around them.
+  function reorder(node, items) {
+    const abs = node.children.filter((k) => k.absolute);
+    node.children = [...abs.filter((k) => (k.z || 0) < 0), ...items, ...abs.filter((k) => (k.z || 0) >= 0)];
+  }
+
+  // ----- tree -----
+
+  async function figmaNode(ctx, el) {
+    const tag = el.localName;
+    if (SKIP.has(tag)) return null;
+    const cs = ctx.win.getComputedStyle(el);
+    if (cs.display === 'none' || parseFloat(cs.opacity) === 0) return null;
+    ctx.done++;
+    if (performance.now() - ctx.lastYield > 40) { ctx.report(Math.min(0.99, ctx.done / ctx.total)); await sleep(0); ctx.lastYield = performance.now(); }
+    if (cs.display === 'contents') return (await figmaChildren(ctx, el, cs)).nodes;
+
+    let transform = null, restore = null;
+    const m = cssMatrix(cs);
+    if (m && !(m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1)) {
+      const props = ['transform', 'rotate', 'scale', 'translate'];
+      const saved = props.map((p) => [p, el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]);
+      props.forEach((p) => el.style.setProperty(p, 'none', 'important'));
+      restore = () => saved.forEach(([p, v, prio]) => { if (v) el.style.setProperty(p, v, prio); else el.style.removeProperty(p); });
+      transform = m;
+    }
+    try {
+      const rect = el.getBoundingClientRect();
+      const b = { x: rect.left + ctx.sx, y: rect.top + ctx.sy, w: rect.width, h: rect.height };
+      const node = { type: 'FRAME', name: layerName(el), x: r2(b.x), y: r2(b.y), w: r2(b.w), h: r2(b.h) };
+      if (cs.position === 'absolute' || cs.position === 'fixed') node.absolute = true;
+      node.z = stackKey(cs);
+      const grow = parseFloat(cs.flexGrow);
+      if (grow > 0) node.flexGrow = grow;
+      if (parseFloat(cs.opacity) < 1) node.opacity = r2(parseFloat(cs.opacity));
+      if (transform) {
+        const [tox, toy] = cs.transformOrigin.split(/\s+/).map(parseFloat);
+        const ox = b.x + (tox || 0), oy = b.y + (toy || 0);
+        const t = transform;
+        node.transform = { a: r2c(t.a), b: r2c(t.b), c: r2c(t.c), d: r2c(t.d), x: r2(ox + t.a * (b.x - ox) + t.c * (b.y - oy) + t.e), y: r2(oy + t.b * (b.x - ox) + t.d * (b.y - oy) + t.f) };
+        node.absolute = true;
+      }
+      const visible = cs.visibility === 'visible';
+      if (visible && b.w > 0 && b.h > 0) Object.assign(node, await boxPaints(ctx, el, cs, b));
+      if (tag !== 'body' && tag !== 'html' && ['hidden', 'clip', 'auto', 'scroll'].some((v) => cs.overflowX === v || cs.overflowY === v)) node.clips = true;
+
+      if (tag === 'svg') {
+        if (!visible || !b.w || !b.h) return null;
+        const svg = inlineSvg(ctx, el, { x: 0, y: 0, w: b.w, h: b.h });
+        return { ...node, type: 'SVG', svg, name: el.getAttribute('aria-label') || node.name };
+      }
+      if (['img', 'video', 'canvas'].includes(tag)) {
+        if (!visible) return null;
+        let src = tag === 'img' ? el.currentSrc || el.src : tag === 'video' ? el.poster : null;
+        if (tag === 'canvas') { try { src = el.toDataURL('image/png'); } catch { src = null; } }
+        const fill = src ? await imageFill(ctx, src, b.w, b.h, cs.objectFit) : null;
+        if (!fill) { ctx.missing.push(src || `${tag} without a source`); node.fills = [...(node.fills || []), solid({ r: 217, g: 217, b: 217, a: 1 })]; }
+        else node.fills = [...(node.fills || []), fill];
+        node.name = el.alt || node.name;
+        node.clips = true;
+        return node;
+      }
+      if (['iframe', 'object', 'embed'].includes(tag)) {
+        ctx.missing.push(`embedded ${tag} (${el.src || el.data || 'no source'})`);
+        node.fills = [solid({ r: 217, g: 217, b: 217, a: 1 })];
+        return node;
+      }
+      if (['input', 'textarea', 'select'].includes(tag)) {
+        const type = (el.type || '').toLowerCase();
+        if (type === 'checkbox' || type === 'radio') {
+          const shapes = paintControl(ctx, el, cs, { x: 0, y: 0, w: b.w, h: b.h });
+          return { ...node, type: 'SVG', svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${num(b.w)}" height="${num(b.h)}" viewBox="0 0 ${num(b.w)} ${num(b.h)}">${shapes}</svg>` };
+        }
+        let value = tag === 'select' ? (el.options[el.selectedIndex] || {}).text || '' : type === 'password' ? '•'.repeat(el.value.length) : el.value;
+        let color = cs.color;
+        if (!value && el.placeholder) { value = el.placeholder; color = ctx.win.getComputedStyle(el, '::placeholder').color; }
+        node.children = [];
+        if (value) {
+          const cb = contentBox(cs, b), fs = parseFloat(cs.fontSize) || 13;
+          const lh = parseFloat(cs.lineHeight) || fs * 1.2;
+          const st = textStyle(ctx, el, cs);
+          st.fill = solid(parseColor(ctx, color) || { r: 117, g: 117, b: 117, a: 1 });
+          const ty = tag === 'textarea' ? cb.y : cb.y + (cb.h - lh) / 2;
+          const align = ['submit', 'button', 'reset'].includes(type) ? 'CENTER' : 'LEFT';
+          node.children.push({ type: 'TEXT', name: value.slice(0, 40), x: r2(cb.x), y: r2(ty), w: r2(cb.w), h: r2(tag === 'textarea' ? cb.h : lh), text: value, align, sizing: 'FIXED', segments: [{ ...st, len: value.length, lh: r2(lh) }] });
+          ctx.stats.text++;
+        }
+        node.layout = inferLayout(node, { P: padsOf(cs) });
+        return node;
+      }
+
+      // An element holding only inline text: a single text layer, or a frame around it when it has its own box.
+      const P = padsOf(cs);
+      if (!el.shadowRoot && inlineOnly(ctx, el) && el.textContent.trim()) {
+        const data = textRuns(ctx, el);
+        if (!data) return hasPaint(node) ? node : null;
+        const block = cs.display !== 'inline';
+        const geom = lineRects(ctx, el);
+        if (block) geom.box = contentBox(cs, b);
+        const text = await makeText(ctx, el, cs, data, geom);
+        if (!text) return hasPaint(node) ? node : null;
+        const bare = !hasPaint(node) && !P.t && !P.r && !P.b && !P.l;
+        if (bare && !node.radii) {
+          text.name = text.name || node.name;
+          text.absolute = node.absolute; text.z = node.z; if (node.flexGrow) text.flexGrow = node.flexGrow;
+          if (node.transform) text.transform = node.transform;
+          const pcs = el.parentElement ? ctx.win.getComputedStyle(el.parentElement) : null;
+          const inRow = pcs && (/flex|grid/.test(pcs.display));
+          if (block && !inRow && text.type === 'TEXT' && text.sizing === 'HUG' && !/^inline/.test(cs.display)) {
+            // Block-level text keeps its box width, so it can be stretched in auto layout.
+            const cb = contentBox(cs, b);
+            text.x = r2(cb.x); text.w = r2(cb.w); text.sizing = 'FIXED';
+          }
+          return text;
+        }
+        node.children = [text];
+        node.layout = inferLayout(node, layoutInfo(cs, P));
+        return node;
+      }
+
+      const kids = await figmaChildren(ctx, el, cs);
+      node.children = kids.nodes;
+      if (!node.children.length) return hasPaint(node) || node.radii ? node : null;
+      node.layout = inferLayout(node, layoutInfo(cs, P));
+      // Transparent wrappers that add nothing collapse into their only child.
+      if (!hasPaint(node) && !node.radii && node.children.length === 1 && !P.t && !P.r && !P.b && !P.l) {
+        const c = node.children[0];
+        if (Math.abs(c.x - node.x) <= 1 && Math.abs(c.y - node.y) <= 1 && Math.abs(c.w - node.w) <= 1 && Math.abs(c.h - node.h) <= 1) {
+          if (node.absolute) c.absolute = true;
+          if (node.flexGrow) c.flexGrow = node.flexGrow;
+          c.z = node.z;
+          return c;
+        }
+      }
+      return node;
+    } finally {
+      if (restore) restore();
+    }
+  }
+  const r2c = (v) => Math.round(v * 10000) / 10000;
+
+  function layoutInfo(cs, P) {
+    const info = { P };
+    if (/flex/.test(cs.display)) info.flex = { column: /column/.test(cs.flexDirection), wrap: cs.flexWrap !== 'nowrap', justify: cs.justifyContent };
+    else if (/grid/.test(cs.display)) info.grid = { cols: cs.gridTemplateColumns === 'none' ? 1 : splitTop(cs.gridTemplateColumns.replace(/\s+/g, ',')).length };
+    return info;
+  }
+
+  async function figmaChildren(ctx, el, cs) {
+    const nodes = [];
+    for (const child of childrenOf(el)) {
+      if (child.nodeType === 3) {
+        if (!child.nodeValue.trim()) continue;
+        const parent = child.parentElement || el;
+        const pcs = parent === el ? cs : ctx.win.getComputedStyle(parent);
+        if (pcs.visibility !== 'visible') continue;
+        const data = textRuns(ctx, parent, child);
+        if (!data) continue;
+        const t = await makeText(ctx, parent, pcs, data, lineRects(ctx, child));
+        if (t) nodes.push(t);
+      } else if (child.nodeType === 1) {
+        const n = await figmaNode(ctx, child);
+        if (Array.isArray(n)) nodes.push(...n); else if (n) nodes.push(n);
+      }
+    }
+    return { nodes };
+  }
+
+  async function htmlToFigmaTree(doc, layoutWidth, viewportH, report = () => {}, bounds = null) {
+    const win = doc.defaultView, root = doc.documentElement, body = doc.body;
+    let fx = 0, fy = 0, width = layoutWidth;
+    let height = Math.ceil(Math.max(root.scrollHeight, body ? body.scrollHeight : 0, viewportH));
+    if (bounds) { fx = Math.floor(bounds.left); fy = Math.floor(bounds.top); width = Math.ceil(bounds.right) - fx; height = Math.ceil(bounds.bottom) - fy; }
+    const ctx = {
+      doc, win, sx: win.scrollX, sy: win.scrollY, defs: [], names: new Map(), n: 0,
+      stats: { groups: 0, text: 0, images: 0, missing: 0, autoLayout: 0, frames: 0 },
+      colors: new Map(), metrics: new Map(), images: new Map(), textFills: new Map(), textGrads: new Map(),
+      probe: doc.createElement('canvas').getContext('2d', { willReadFrequently: true }), bodyPropagated: false,
+      fonts: new Set(), missing: [], imageIds: new Map(), payloadImages: {},
+      total: Math.max(1, doc.getElementsByTagName('*').length), done: 0, report, lastYield: performance.now(),
+    };
+    const rootBg = parseColor(ctx, win.getComputedStyle(root).backgroundColor);
+    const bodyBg = body ? parseColor(ctx, win.getComputedStyle(body).backgroundColor) : null;
+    if (!rootBg && bodyBg) ctx.bodyPropagated = true;
+    const pageBg = rootBg || bodyBg || { r: 255, g: 255, b: 255, a: 1 };
+
+    const page = { type: 'FRAME', name: state.name.replace(/\.html?$/i, ''), x: fx, y: fy, w: width, h: height, fills: [solid(pageBg)], clips: true, children: [] };
+    const bodyNode = body ? await figmaNode(ctx, body) : null;
+    if (Array.isArray(bodyNode)) page.children.push(...bodyNode); else if (bodyNode) page.children.push(bodyNode);
+    page.layout = inferLayout(page, { P: { t: 0, r: 0, b: 0, l: 0 } });
+    if (page.layout) { page.layout.hugPrimary = page.layout.mode === 'VERTICAL' && page.layout.hugPrimary; page.layout.hugCross = false; }
+    settleSizing(page, false, false);
+
+    const count = (n) => {
+      if (n.type === 'FRAME') { ctx.stats.frames++; if (n.layout) ctx.stats.autoLayout++; }
+      (n.children || []).forEach(count);
+    };
+    count(page);
+    return {
+      tree: { format: 'html-to-figma', version: 1, name: page.name, width, height, root: page, images: ctx.payloadImages },
+      stats: ctx.stats, fonts: ctx.fonts, missing: ctx.missing,
+    };
   }
 
   render();

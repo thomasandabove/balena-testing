@@ -1,0 +1,74 @@
+<style>
+  :root { --bg: var(--figma-color-bg, #fff); --fg: var(--figma-color-text, #1e1e1e); --muted: var(--figma-color-text-secondary, #6b6b6b);
+    --line: var(--figma-color-border, #e6e6e6); --accent: var(--figma-color-bg-brand, #0d99ff); --ok: var(--figma-color-text-success, #14ae5c);
+    --err: var(--figma-color-text-danger, #f24822); }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 12px/1.5 Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 12px; height: 100vh; }
+  h1 { font-size: 13px; font-weight: 600; margin: 0; }
+  p { margin: 0; color: var(--muted); }
+  .zone { flex: 1; border: 1.5px dashed var(--line); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 16px; outline: none; }
+  .zone:focus, .zone.active { border-color: var(--accent); }
+  .zone strong { font-size: 13px; }
+  kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .status { min-height: 36px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  [hidden] { display: none !important; }
+</style>
+
+<h1>HTML to Figma Importer</h1>
+<p>In the HTML to Figma tool, choose <strong>Auto layout</strong>, click <strong>Copy to Figma</strong>, then paste here.</p>
+<div class="zone" id="zone" tabindex="0">
+  <strong>Press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd></strong>
+  <span>The page is built as frames with auto layout on the current page.</span>
+</div>
+<div class="bar" id="bar" hidden><div id="fill"></div></div>
+<div class="status" id="status" role="status"></div>
+
+<script>
+  const zone = document.getElementById('zone');
+  const status = document.getElementById('status');
+  const bar = document.getElementById('bar');
+  const fill = document.getElementById('fill');
+  let busy = false;
+  zone.focus();
+  window.addEventListener('focus', () => zone.focus());
+
+  function say(text, kind) { status.textContent = text; status.className = 'status' + (kind ? ' ' + kind : ''); }
+
+  document.addEventListener('paste', (e) => {
+    if (busy) return;
+    const text = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    e.preventDefault();
+    let data;
+    try { data = JSON.parse(text); } catch (err) {
+      say(text.trim().startsWith('<svg') ? 'That was copied with "Direct paste". Switch the tool to "Auto layout", copy again and paste here.' : 'Nothing to import. Copy from the HTML to Figma tool with "Auto layout" selected, then paste here.', 'err');
+      return;
+    }
+    busy = true;
+    zone.classList.add('active');
+    bar.hidden = false;
+    fill.style.width = '2%';
+    say('Building layers…');
+    parent.postMessage({ pluginMessage: { type: 'import', data } }, '*');
+  });
+
+  window.onmessage = (e) => {
+    const msg = e.data && e.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'progress') {
+      fill.style.width = Math.max(2, Math.round((msg.done / Math.max(1, msg.total)) * 100)) + '%';
+      say(`Building layers… ${msg.done} of ${msg.total}`);
+    } else if (msg.type === 'done') {
+      busy = false; zone.classList.remove('active'); fill.style.width = '100%';
+      let text = `Added "${msg.name}": ${msg.frames} frames, ${msg.autoLayout} with auto layout.`;
+      if (msg.missingFonts.length) text += ` Not installed, so Inter was used instead: ${msg.missingFonts.join(', ')}.`;
+      say(text, 'ok');
+    } else if (msg.type === 'error') {
+      busy = false; zone.classList.remove('active'); bar.hidden = true;
+      say('Import stopped: ' + msg.message, 'err');
+    }
+  };
+</script>
