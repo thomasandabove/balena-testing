@@ -158,7 +158,7 @@
 <div class="wrap">
   <header class="bar">
     <h1 class="mark">HTML <span>→</span> Figma</h1>
-    <p>Drop in an HTML file, check it renders, then copy. Figma pastes it as editable frames, shapes and text layers.</p>
+    <p>Drop in an HTML file, check it renders, then copy. Figma pastes it as editable frames with auto layout, text and images. No plugin needed.</p>
   </header>
 
   <main class="layout">
@@ -198,8 +198,8 @@
       <section class="step" aria-labelledby="s3">
         <h2 id="s3"><b>3</b> Copy</h2>
         <div class="seg seg-2" role="group" aria-label="Paste method">
-          <button type="button" data-mode="plugin" aria-pressed="true">Auto layout<small>via plugin</small></button>
-          <button type="button" data-mode="svg" aria-pressed="false">Direct paste<small>no auto layout</small></button>
+          <button type="button" data-mode="native" aria-pressed="true">Auto layout<small>recommended</small></button>
+          <button type="button" data-mode="svg" aria-pressed="false">Flat layers<small>fixed positions</small></button>
         </div>
         <button class="copy" id="copyBtn" type="button" disabled><span class="spinner" aria-hidden="true"></span>Preparing layers…</button>
         <div class="status" id="status" data-kind="busy" role="status">Rendering the sample…</div>
@@ -221,31 +221,23 @@
           <p class="notes">Your browser blocked the clipboard. The code below is selected: press <kbd>⌘C</kbd> or <kbd>Ctrl C</kbd>, then paste in Figma.</p>
           <textarea id="fallbackText" readonly></textarea>
         </div>
-        <div class="notes how" id="howPlugin">
-          <p>In Figma, run <strong>Plugins → Development → HTML to Figma Importer</strong> and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd> in its window. It builds frames with auto layout, gaps, padding and Fill/Hug sizing.</p>
-          <details>
-            <summary>One-time plugin setup</summary>
-            <ol>
-              <li>Download the <code>figma-plugin</code> folder from <a href="https://github.com/thomasandabove/testing/tree/claude/html-figma-copy-tool-05p5g1/html-to-figma/figma-plugin" target="_blank" rel="noopener">the GitHub repo</a>.</li>
-              <li>In the Figma desktop app, open any design file and choose <strong>Plugins → Development → Import plugin from manifest…</strong></li>
-              <li>Pick <code>manifest.json</code> from that folder. The plugin then stays in your Development menu.</li>
-            </ol>
-          </details>
-        </div>
-        <p class="notes how" id="howSvg" hidden>In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. Layers paste with fixed positions, without auto layout.</p>
+        <p class="notes how" id="howNative">In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. The page pastes as frames with auto layout, gaps, padding and Fill/Hug sizing. No plugin needed.</p>
+        <p class="notes how" id="howSvg" hidden>In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. Layers paste as shapes and text with fixed positions. Use this if an auto layout paste comes out wrong.</p>
         <p class="notes" style="margin:0">Fonts need to be installed on your machine to show correctly.</p>
       </section>
 
       <details class="step notes">
         <summary>What carries over</summary>
         <ul>
+          <li>Auto layout: flexbox, grids and stacked content become auto layout frames with gaps, padding, alignment, wrap and Fill/Hug sizing. Uneven spacing becomes nested stacks so every gap stays exact. Frames are named after their HTML elements.</li>
           <li>Backgrounds, linear and radial gradients, borders, corner radius and drop shadows.</li>
           <li>Text as live text layers with font, size, weight, colour and letter spacing.</li>
           <li>Images, inline SVG icons, opacity and overflow clipping.</li>
           <li><code>::before</code>/<code>::after</code> content, list bullets, rotated and scaled elements, inner shadows, text shadows, tiled backgrounds and icon fonts.</li>
           <li>Fit content sizes the frame to the whole page, so canvases and artboards laid out beyond the screen come across in full.</li>
           <li>Scroll-triggered animations are played to their end state, so content that fades in on scroll is included.</li>
-          <li>Not carried over: blend modes, CSS filters and blurs, conic gradients and video playback.</li>
+          <li>Not carried over: blend modes, conic gradients and video playback.</li>
+          <li>Auto layout pastes use Figma's own clipboard format through the open-source <a href="https://github.com/figitdesign/web-to-figma" target="_blank" rel="noopener">@figit/dom-to-figma</a> library. Figma doesn't document that format, so if a paste ever comes out wrong after a Figma update, use "Flat layers".</li>
           <li>Stylesheets, scripts and images hosted on other websites may be blocked here. The tool lists anything that didn't load; upload those files together with your HTML.</li>
         </ul>
       </details>
@@ -332,7 +324,7 @@
 </div></body></html>`;
 
   const $ = (s) => document.querySelector(s);
-  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, mode: 'plugin', tree: '', result: null, scripts: false, scriptsTouched: false, svg: '', token: 0 };
+  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, mode: 'native', native: '', result: null, scripts: false, scriptsTouched: false, svg: '', token: 0 };
   let previewUrl = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const SCRIPT_END = '<' + '/script>';
@@ -407,7 +399,7 @@
     const token = ++state.token;
     const check = () => { if (token !== state.token) throw new Cancelled(); };
     state.svg = '';
-    state.tree = '';
+    state.native = '';
     setCopyState('busy');
     $('#fallback').hidden = true;
     $('#warnBox').hidden = true;
@@ -429,11 +421,11 @@
     const frame = document.createElement('iframe');
     frame.id = 'page';
     frame.title = 'Rendered HTML';
-    frame.setAttribute('sandbox', state.scripts ? 'allow-same-origin allow-scripts' : 'allow-same-origin');
+    frame.setAttribute('sandbox', 'allow-same-origin allow-scripts');
     frame.style.cssText = old.style.cssText;
     const loaded = new Promise((res) => frame.addEventListener('load', res, { once: true }));
     old.replaceWith(frame);
-    frame.srcdoc = state.scripts ? withRecorder(state.html) : state.html;
+    frame.srcdoc = state.scripts ? withRecorder(state.html) : withoutScripts(state.html);
 
     try {
       await Promise.race([loaded, sleep(20000)]);
@@ -445,10 +437,10 @@
       await reveal(frame, (f) => { check(); progress('reveal', f); });
       progress('convert', 0);
       const bounds = state.fit ? contentBounds(frame.contentDocument, frame.contentWindow) : null;
-      const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f * 0.45); }, bounds);
-      const tree = await htmlToFigmaTree(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', 0.45 + f * 0.55); }, bounds);
-      result.tree = tree;
-      state.tree = JSON.stringify(tree.tree);
+      const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f * 0.4); }, bounds);
+      result.native = await nativeConvert(frame, result, (f) => { check(); progress('convert', 0.4 + f * 0.6); });
+      check();
+      state.native = result.native.html;
       if (state.fit) $('#dims').textContent = `Fit content · ${result.width} × ${result.height}`;
       check();
       progress('convert', 1);
@@ -476,17 +468,16 @@
   function showStats() {
     const r = state.result;
     if (!r) return;
-    const plugin = state.mode === 'plugin';
-    const st = plugin ? r.tree.stats : r.stats;
-    const size = plugin ? state.tree.length : state.svg.length;
+    const native = state.mode === 'native';
+    const st = native ? r.native.stats : r.stats;
     $('#stFrame').textContent = `${r.width} × ${r.height}`;
-    $('#stGroupsLabel').textContent = plugin ? 'Auto layout frames' : 'Groups';
-    $('#stGroups').textContent = plugin ? `${st.autoLayout} of ${st.frames}` : st.groups;
+    $('#stGroupsLabel').textContent = native ? 'Auto layout frames' : 'Groups';
+    $('#stGroups').textContent = native ? `${st.autoLayout} of ${st.frames}` : st.groups;
     $('#stText').textContent = st.text;
     $('#stImages').textContent = st.images;
-    setStatus('ok', plugin
-      ? `Ready. ${st.frames} frames, ${st.autoLayout} with auto layout, ${Math.round(size / 1024)} KB.`
-      : `Ready. ${st.groups + st.text + st.images} layers, ${Math.round(size / 1024)} KB.`);
+    setStatus('ok', native
+      ? `Ready. ${st.frames} frames, ${st.autoLayout} with auto layout.`
+      : `Ready. ${st.groups + st.text + st.images} layers, ${Math.round(state.svg.length / 1024)} KB.`);
   }
 
   function showResult(r, frame) {
@@ -494,7 +485,7 @@
     showStats();
     setCopyState('idle');
 
-    const fonts = [...new Set([...r.fonts, ...r.tree.fonts])].sort();
+    const fonts = [...r.fonts].sort();
     $('#fontsList').innerHTML = '';
     fonts.forEach((f) => { const s = document.createElement('span'); s.textContent = f; $('#fontsList').appendChild(s); });
     $('#fontsBox').hidden = !fonts.length;
@@ -503,13 +494,13 @@
     const warnings = [];
     const sheets = [...doc.querySelectorAll('link[rel~="stylesheet"]')].filter((l) => !l.sheet).map((l) => l.href);
     const loadedJs = new Set(win.__h2fLoaded || []);
-    const stuck = state.scripts ? [...doc.querySelectorAll('script[src]')].filter((sc) => !loadedJs.has(sc.src)).map((sc) => sc.src) : [];
+    const stuck = state.scripts ? [...doc.querySelectorAll('script[src]')].filter((sc) => !loadedJs.has(sc.src) && sc.src !== FIGIT_URL).map((sc) => sc.src) : [];
     const failed = new Set([...(win.__h2fFailed || []), ...sheets, ...stuck]);
     const css = [...failed].filter((u) => (/\.css(\?|$)/i.test(u) || sheets.includes(u)) && !/fonts\.googleapis\.com/.test(u));
     const js = [...failed].filter((u) => !css.includes(u) && !/fonts\.googleapis\.com/.test(u) && !/\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u));
     if (css.length) warnings.push(['Stylesheets that couldn\'t load, so the page is missing their styling. Download each one and upload it together with your HTML file:', css]);
     if (js.length) warnings.push(['Scripts that couldn\'t load, so parts of the page they build may be missing. Download each one and upload it together with your HTML file:', js]);
-    const missing = [...new Set([...r.missing, ...r.tree.missing])];
+    const missing = [...new Set([...r.missing, ...r.native.missing])];
     if (missing.length) warnings.push(['Images that couldn\'t be read, now grey placeholders. Upload them together with your HTML file:', missing]);
     if (!state.scripts && /<script\b/i.test(state.html)) warnings.push(['This page has scripts that were not run. Tick "Run the page\'s scripts" if content is missing.', []]);
     const list = $('#warnList');
@@ -533,8 +524,14 @@
   }
 
   $('#copyBtn').addEventListener('click', async () => {
-    const payload = state.mode === 'plugin' ? state.tree : state.svg;
-    const done = state.mode === 'plugin' ? 'Copied. In Figma, open the HTML to Figma Importer plugin and press ⌘V / Ctrl V.' : 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.';
+    const done = 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.';
+    if (state.mode === 'native') {
+      if (!state.native) return;
+      if (await copyHtml(state.native)) { setStatus('ok', done); flashCopied(); }
+      else setStatus('err', 'The clipboard is blocked here. Switch to "Flat layers" to copy the page as code you can paste instead.');
+      return;
+    }
+    const payload = state.svg;
     if (!payload) return;
     try {
       await navigator.clipboard.writeText(payload);
@@ -569,14 +566,14 @@
   function selectMode(mode) {
     state.mode = mode;
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
-    $('#howPlugin').hidden = mode !== 'plugin';
+    $('#howNative').hidden = mode !== 'native';
     $('#howSvg').hidden = mode !== 'svg';
     $('#fallback').hidden = true;
     showStats();
     try { localStorage.setItem('h2f-mode', mode); } catch {}
   }
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => selectMode(b.dataset.mode)));
-  try { const saved = localStorage.getItem('h2f-mode'); if (saved === 'svg' || saved === 'plugin') selectMode(saved); } catch {}
+  try { const saved = localStorage.getItem('h2f-mode'); if (saved === 'svg' || saved === 'native') selectMode(saved); } catch {}
 
   function selectWidth(w) {
     state.fit = w === 'fit';
@@ -1666,264 +1663,9 @@
     }
   }
 
-  // ---------- Auto layout: rendered DOM → layout tree that the Figma plugin builds ----------
+  // ---------- Layout inference (geometry → auto layout) ----------
 
   const r2 = (n) => Math.round(n * 100) / 100;
-  const solid = (c) => ({ type: 'SOLID', color: { r: r2(c.r / 255), g: r2(c.g / 255), b: r2(c.b / 255) }, opacity: r2(c.a) });
-  const NOT_TEXT = new Set(['img', 'svg', 'video', 'canvas', 'iframe', 'object', 'embed', 'input', 'textarea', 'select']);
-
-  // Figma positions gradients with a transform from the node's 0–1 space to gradient space.
-  function invert(a, b, c, d, e, f) {
-    const det = a * d - b * c || 1e-9;
-    const ia = d / det, ib = -b / det, ic = -c / det, id = a / det;
-    return [[ia, ic, -(ia * e + ic * f)], [ib, id, -(ib * e + id * f)]].map((row) => row.map((v) => Math.round(v * 10000) / 10000));
-  }
-  function figmaGradient(ctx, layer, src, T) {
-    const stopsOut = (stops) => stops.map((s) => ({ position: r2(s.o), color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) } }));
-    if (/linear-gradient/.test(layer)) {
-      const g = linearGeom(ctx, layer, src);
-      if (!g) return null;
-      const p0 = { x: (g.x1 - T.x) / T.w, y: (g.y1 - T.y) / T.h }, p1 = { x: (g.x2 - T.x) / T.w, y: (g.y2 - T.y) / T.h };
-      const DX = g.x2 - g.x1, DY = g.y2 - g.y1;
-      const a = p1.x - p0.x, b = p1.y - p0.y, c = -DY / T.w, d = DX / T.h;
-      return { type: 'GRADIENT_LINEAR', gradientTransform: invert(a, b, c, d, p0.x - c / 2, p0.y - d / 2), gradientStops: stopsOut(g.stops) };
-    }
-    const g = radialGeom(ctx, layer, src);
-    if (!g) return null;
-    const rx = g.rx / T.w, ry = g.ry / T.h;
-    return { type: 'GRADIENT_RADIAL', gradientTransform: invert(2 * rx, 0, 0, 2 * ry, (g.cx - T.x) / T.w - rx, (g.cy - T.y) / T.h - ry), gradientStops: stopsOut(g.stops) };
-  }
-
-  // Images travel once in the payload; paints point at them by id.
-  async function imageRef(ctx, data) {
-    let url = data.url;
-    if (!/^data:image\/(png|jpe?g);base64,/i.test(url)) {
-      const src = data.img;
-      const c = document.createElement('canvas');
-      c.width = src.width || src.naturalWidth || 1; c.height = src.height || src.naturalHeight || 1;
-      c.getContext('2d').drawImage(src, 0, 0);
-      url = c.toDataURL('image/png');
-    }
-    if (!ctx.imageIds.has(url)) {
-      const id = 'img' + ctx.imageIds.size;
-      ctx.imageIds.set(url, id);
-      ctx.payloadImages[id] = url.slice(url.indexOf(',') + 1);
-    }
-    return ctx.imageIds.get(url);
-  }
-  const pixelWidth = (data) => (data.img && (data.img.width || data.img.naturalWidth)) || data.w;
-
-  async function imageFill(ctx, src, w, h, fit) {
-    const data = await loadImage(ctx, src, w, h);
-    if (!data) return null;
-    ctx.stats.images++;
-    const scaleMode = fit === 'contain' || fit === 'scale-down' ? 'FIT' : 'FILL';
-    return { type: 'IMAGE', imageRef: await imageRef(ctx, data), scaleMode };
-  }
-
-  function rasterText(ctx, cs, text, w, h) {
-    const scale = 4, c = ctx.doc.createElement('canvas');
-    c.width = Math.max(1, Math.ceil(w * scale)); c.height = Math.max(1, Math.ceil(h * scale));
-    const g = c.getContext('2d');
-    g.scale(scale, scale);
-    g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    g.fillStyle = cs.color;
-    g.textBaseline = 'middle';
-    g.fillText(text, 0, h / 2);
-    return c.toDataURL('image/png');
-  }
-
-  async function boxPaints(ctx, el, cs, b) {
-    const out = { fills: [], effects: [] };
-    const propagated = el === ctx.doc.body && ctx.bodyPropagated;
-    const clipText = cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text';
-    const layers = !propagated && cs.backgroundImage && cs.backgroundImage !== 'none' ? splitTop(cs.backgroundImage) : [];
-    if (clipText) {
-      const layer = layers.find((l) => /gradient/.test(l));
-      if (layer) ctx.textGrads.set(el, { layer, box: b });
-    } else {
-      const bg = propagated ? null : parseColor(ctx, cs.backgroundColor);
-      if (bg) out.fills.push(solid(bg));
-      for (let i = layers.length - 1; i >= 0; i--) {
-        const layer = layers[i];
-        const size = (splitTop(cs.backgroundSize)[i] || 'auto').trim();
-        const repeat = (splitTop(cs.backgroundRepeat)[i] || 'repeat').trim();
-        if (/gradient/.test(layer)) {
-          const [sw, sh = sw] = size.split(/\s+/);
-          const val = (v, dim) => (v === 'auto' || v === 'cover' || v === 'contain' ? dim : /%$/.test(v) ? (parseFloat(v) / 100) * dim : parseFloat(v));
-          const tw = val(sw, b.w), th = val(sh, b.h);
-          if (tw > 0 && th > 0 && (tw < b.w - 0.5 || th < b.h - 0.5) && repeat !== 'no-repeat') {
-            // Small repeating gradients (dot grids, stripes) become a tiled image.
-            const tmp = Object.create(ctx); tmp.defs = [];
-            const fill = /linear/.test(layer) ? linearGradient(tmp, layer, { x: 0, y: 0, w: tw, h: th }) : radialGradient(tmp, layer, { x: 0, y: 0, w: tw, h: th });
-            ctx.n = tmp.n;
-            if (!fill) continue;
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${num(tw)}" height="${num(th)}"><defs>${tmp.defs.join('')}</defs><rect width="${num(tw)}" height="${num(th)}" fill="${fill}"/></svg>`;
-            const data = await loadImage(ctx, 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), tw, th);
-            if (data) out.fills.push({ type: 'IMAGE', imageRef: await imageRef(ctx, data), scaleMode: 'TILE', scalingFactor: r2(tw / pixelWidth(data)) });
-            continue;
-          }
-          const paint = figmaGradient(ctx, layer, b, b);
-          if (paint) out.fills.push(paint);
-        } else {
-          const m = layer.match(/url\(\s*["']?(.*?)["']?\s*\)/);
-          if (!m) continue;
-          const data = await loadImage(ctx, m[1], b.w, b.h);
-          if (!data) { ctx.missing.push(m[1]); out.fills.push(solid({ r: 217, g: 217, b: 217, a: 1 })); continue; }
-          ctx.stats.images++;
-          const ref = await imageRef(ctx, data);
-          if (size === 'cover' || size === 'contain') out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: size === 'cover' ? 'FILL' : 'FIT' });
-          else if (repeat !== 'no-repeat' && data.w < b.w) {
-            const tw = size === 'auto' || size === 'auto auto' ? data.w : parseFloat(size) || data.w;
-            out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: 'TILE', scalingFactor: r2(tw / pixelWidth(data)) });
-          } else out.fills.push({ type: 'IMAGE', imageRef: ref, scaleMode: 'FILL' });
-        }
-      }
-    }
-    const sides = ['Top', 'Right', 'Bottom', 'Left'].map((s) => ({
-      w: parseFloat(cs[`border${s}Width`]) || 0, style: cs[`border${s}Style`], c: parseColor(ctx, cs[`border${s}Color`]),
-    })).map((s) => (s.w > 0 && s.c && s.style !== 'none' && s.style !== 'hidden' ? s : null));
-    const first = sides.find(Boolean);
-    if (first) {
-      out.strokes = [solid(first.c)];
-      out.strokeWeights = sides.map((s) => (s ? r2(s.w) : 0));
-      if (first.style === 'dashed') out.dash = [first.w * 3, first.w * 2];
-      if (first.style === 'dotted') out.dash = [first.w, first.w];
-    }
-    const r = radiiOf(cs, b.w, b.h).map(r2);
-    if (r.some(Boolean)) out.radii = r;
-    for (const s of parseShadows(ctx, cs.boxShadow)) {
-      out.effects.push({ type: s.inset ? 'INNER_SHADOW' : 'DROP_SHADOW', color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) }, offset: { x: s.x, y: s.y }, radius: s.blur, spread: s.spread });
-    }
-    const blur = (cs.backdropFilter || cs.webkitBackdropFilter || '').match(/blur\(([\d.]+)px\)/);
-    if (blur) out.effects.push({ type: 'BACKGROUND_BLUR', radius: parseFloat(blur[1]) });
-    const lblur = (cs.filter || '').match(/blur\(([\d.]+)px\)/);
-    if (lblur) out.effects.push({ type: 'LAYER_BLUR', radius: parseFloat(lblur[1]) });
-    if (!out.effects.length) delete out.effects;
-    return out;
-  }
-
-  const hasPaint = (n) => !!((n.fills && n.fills.length) || n.strokes || n.effects || n.opacity < 1 || n.clips || n.transform);
-
-  // ----- text -----
-
-  function textStyle(ctx, el, cs) {
-    const family = figmaFont(cs.fontFamily);
-    ctx.fonts.add(family);
-    const deco = /underline/.test(cs.textDecorationLine) ? 'UNDERLINE' : /line-through/.test(cs.textDecorationLine) ? 'STRIKETHROUGH' : null;
-    const st = {
-      family, weight: parseInt(cs.fontWeight, 10) || 400, italic: cs.fontStyle !== 'normal', size: r2(parseFloat(cs.fontSize)),
-      ls: r2(parseFloat(cs.letterSpacing) || 0), lh: cs.lineHeight === 'normal' ? null : r2(parseFloat(cs.lineHeight)),
-      deco, textCase: { uppercase: 'UPPER', lowercase: 'LOWER', capitalize: 'TITLE' }[cs.textTransform] || null,
-    };
-    const c = parseColor(ctx, cs.webkitTextFillColor) || parseColor(ctx, cs.color);
-    if (c) st.fill = solid(c);
-    else for (let p = el; p && p.nodeType === 1; p = p.parentElement) if (ctx.textGrads.has(p)) { st.gradFrom = p; break; }
-    const a = el.closest && el.closest('a[href]');
-    if (a && /^https?:/.test(a.href)) st.href = a.href;
-    return st;
-  }
-  const styleKey = (s) => JSON.stringify([s.family, s.weight, s.italic, s.size, s.ls, s.lh, s.deco, s.textCase, s.fill, s.href, s.gradFrom ? 1 : 0]);
-
-  // Pure inline content (text, <b>, <a>, <em>…) becomes one text layer with styled ranges.
-  function inlineOnly(ctx, el) {
-    for (const n of el.childNodes) {
-      if (n.nodeType !== 1 || n.localName === 'br' || SKIP.has(n.localName)) continue;
-      const c = ctx.win.getComputedStyle(n);
-      if (c.display === 'none') continue;
-      if (c.display !== 'inline' || NOT_TEXT.has(n.localName) || n.shadowRoot) return false;
-      const clipText = c.backgroundClip === 'text' || c.webkitBackgroundClip === 'text';
-      if (clipText) boxPaints(ctx, n, c, n.getBoundingClientRect());
-      if (parseColor(ctx, c.backgroundColor) || (c.backgroundImage !== 'none' && !clipText) || parseFloat(c.borderTopWidth) || parseFloat(c.borderLeftWidth)
-        || parseFloat(c.paddingLeft) || parseFloat(c.paddingTop) || (c.boxShadow && c.boxShadow !== 'none')) return false;
-      if (!inlineOnly(ctx, n)) return false;
-    }
-    return true;
-  }
-
-  function textRuns(ctx, el, onlyNode) {
-    const pieces = [];
-    const add = (str, parent) => {
-      const pcs = ctx.win.getComputedStyle(parent);
-      if (pcs.visibility !== 'visible') return;
-      const pre = /^(pre|pre-wrap|break-spaces)$/.test(pcs.whiteSpace);
-      let t = pre ? str : str.replace(/\s+/g, ' ');
-      const prev = pieces.length ? pieces[pieces.length - 1].t : '';
-      if (!pre && (prev === '' || /[ \n]$/.test(prev)) && t.startsWith(' ')) t = t.slice(1);
-      if (t) pieces.push({ t, st: textStyle(ctx, parent, pcs), el: parent });
-    };
-    const walkText = (node) => {
-      for (const n of node.childNodes) {
-        if (n.nodeType === 3) add(n.nodeValue, node);
-        else if (n.nodeType === 1 && n.localName === 'br') {
-          if (pieces.length) { const last = pieces[pieces.length - 1]; last.t = last.t.replace(/ $/, '') + '\n'; }
-        } else if (n.nodeType === 1 && !SKIP.has(n.localName) && ctx.win.getComputedStyle(n).display !== 'none') walkText(n);
-      }
-    };
-    if (onlyNode) add(onlyNode.nodeValue, el); else walkText(el);
-    if (!pieces.length) return null;
-    pieces[pieces.length - 1].t = pieces[pieces.length - 1].t.replace(/[ \n]+$/, '');
-    const merged = [];
-    for (const p of pieces) {
-      if (!p.t) continue;
-      const last = merged[merged.length - 1];
-      if (last && styleKey(last.st) === styleKey(p.st)) last.t += p.t; else merged.push({ ...p });
-    }
-    const text = merged.map((p) => p.t).join('');
-    return text.trim() ? { text, runs: merged } : null;
-  }
-
-  function lineRects(ctx, target) {
-    const range = ctx.doc.createRange();
-    if (target.nodeType === 3) range.selectNodeContents(target); else range.selectNodeContents(target);
-    const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
-    const tops = [];
-    for (const r of rects) if (!tops.some((t) => Math.abs(t - r.top) < r.height * 0.5)) tops.push(r.top);
-    return { rects, lines: tops.length };
-  }
-
-  function makeText(ctx, el, cs, data, geom) {
-    const { rects, lines } = geom;
-    if (!rects.length) return null;
-    const sx = ctx.sx, sy = ctx.sy;
-    let x = Math.min(...rects.map((r) => r.left)) + sx, right = Math.max(...rects.map((r) => r.right)) + sx;
-    let y = Math.min(...rects.map((r) => r.top)) + sy, bottom = Math.max(...rects.map((r) => r.bottom)) + sy;
-    const align = { center: 'CENTER', right: 'RIGHT', end: 'RIGHT', justify: 'JUSTIFIED' }[cs.textAlign] || 'LEFT';
-    const block = geom.box;
-    // Text boxes span whole line boxes (half-leading above and below), like Figma's text layers.
-    const lh = parseFloat(cs.lineHeight);
-    const glyphH = Math.max(...rects.map((r) => r.height));
-    if (lh && lh > glyphH) { const half = (lh - glyphH) / 2; y -= half; bottom += half; }
-    if (block) { y = Math.max(block.y, y); bottom = Math.min(block.y + block.h, bottom) || bottom; }
-    let sizing = 'HUG';
-    if ((lines > 1 || align !== 'LEFT') && block) { x = block.x; right = block.x + block.w; sizing = 'FIXED'; }
-    else if (lines > 1) sizing = 'FIXED';
-    const node = { type: 'TEXT', name: data.text.slice(0, 40).replace(/\s+/g, ' '), x: r2(x), y: r2(y), w: r2(right - x), h: r2(bottom - y), text: data.text, align, sizing };
-    const T = { x: node.x, y: node.y, w: node.w || 1, h: node.h || 1 };
-    node.segments = data.runs.map((p) => {
-      const st = { ...p.st, len: p.t.length };
-      if (st.gradFrom) {
-        const g = ctx.textGrads.get(st.gradFrom);
-        st.fill = figmaGradient(ctx, g.layer, g.box, T) || solid({ r: 0, g: 0, b: 0, a: 1 });
-        delete st.gradFrom;
-      }
-      if (!st.fill) st.fill = solid({ r: 0, g: 0, b: 0, a: 1 });
-      return st;
-    });
-    const shadows = parseShadows(ctx, cs.textShadow).filter((s) => !s.inset);
-    if (shadows.length) node.effects = shadows.map((s) => ({ type: 'DROP_SHADOW', color: { r: r2(s.color.r / 255), g: r2(s.color.g / 255), b: r2(s.color.b / 255), a: r2(s.color.a) }, offset: { x: s.x, y: s.y }, radius: s.blur, spread: 0 }));
-    ctx.stats.text++;
-    // Icon fonts would arrive as empty boxes: ship the glyphs as a picture instead.
-    if (data.runs.every((p) => ICON_FONT.test(ctx.win.getComputedStyle(p.el).fontFamily)) || PUA.test(data.text)) {
-      ctx.stats.text--;
-      return (async () => {
-        const url = rasterText(ctx, ctx.win.getComputedStyle(data.runs[0].el), data.text.trim(), node.w, node.h);
-        ctx.stats.images++;
-        return { type: 'FRAME', name: 'icon', x: node.x, y: node.y, w: node.w, h: node.h, fills: [{ type: 'IMAGE', imageRef: await imageRef(ctx, { url }), scaleMode: 'FIT' }] };
-      })();
-    }
-    return node;
-  }
 
   function contentBox(cs, b) {
     const l = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0);
@@ -1936,6 +1678,7 @@
     t: (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0), r: (parseFloat(cs.borderRightWidth) || 0) + (parseFloat(cs.paddingRight) || 0),
     b: (parseFloat(cs.borderBottomWidth) || 0) + (parseFloat(cs.paddingBottom) || 0), l: (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0),
   });
+
 
   // ----- layout inference -----
 
@@ -1967,8 +1710,9 @@
     const uniform = !gaps.length || Math.max(...gaps) - Math.min(...gaps) <= TOL;
     const justify = info.flex ? info.flex.justify : 'normal';
     let primaryAlign = 'MIN', gap = 0;
-    if (uniform) gap = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0;
-    else if (/space-(between|around|evenly)/.test(justify)) primaryAlign = 'SPACE_BETWEEN';
+    if (/space-between/.test(justify) && items.length > 1) primaryAlign = 'SPACE_BETWEEN';
+    else if (uniform) gap = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0;
+    else if (/space-(around|evenly)/.test(justify)) primaryAlign = 'SPACE_BETWEEN';
     else {
       // Uneven spacing (CSS margins): split at the largest gap into nested stacks, each with one even gap.
       const maxG = Math.max(...gaps);
@@ -2035,25 +1779,6 @@
     return g.layout ? g : null;
   }
 
-  // Fill only works where the parent has a fixed size on that axis; drop it where the parent hugs.
-  function settleSizing(node, fillW, fillH) {
-    const L = node.layout;
-    if (node.type !== 'FRAME') return;
-    if (L) {
-      const H = L.mode === 'HORIZONTAL';
-      const hugW = H ? L.hugPrimary : L.hugCross, hugH = H ? L.hugCross : L.hugPrimary;
-      const fixedW = !hugW || fillW, fixedH = !hugH || fillH;
-      for (const c of node.children) {
-        if (c.absolute || !c.lp) continue;
-        const wantW = H ? c.lp.grow : c.lp.crossFill, wantH = H ? c.lp.crossFill : c.lp.grow;
-        if (wantW && !fixedW) { if (H) delete c.lp.grow; else delete c.lp.crossFill; }
-        if (wantH && !fixedH) { if (H) delete c.lp.crossFill; else delete c.lp.grow; }
-        const lp = c.lp || {};
-        settleSizing(c, H ? !!lp.grow : !!lp.crossFill, H ? !!lp.crossFill : !!lp.grow);
-      }
-    } else for (const c of node.children || []) settleSizing(c, false, false);
-  }
-
   const roundPad = (p) => ({ t: Math.max(0, r2(p.t)), r: Math.max(0, r2(p.r)), b: Math.max(0, r2(p.b)), l: Math.max(0, r2(p.l)) });
 
   function stacked(items, mode) {
@@ -2098,140 +1823,6 @@
     node.children = [...abs.filter((k) => (k.z || 0) < 0), ...items, ...abs.filter((k) => (k.z || 0) >= 0)];
   }
 
-  // ----- tree -----
-
-  async function figmaNode(ctx, el) {
-    const tag = el.localName;
-    if (SKIP.has(tag)) return null;
-    const cs = ctx.win.getComputedStyle(el);
-    if (cs.display === 'none' || parseFloat(cs.opacity) === 0) return null;
-    ctx.done++;
-    if (performance.now() - ctx.lastYield > 40) { ctx.report(Math.min(0.99, ctx.done / ctx.total)); await sleep(0); ctx.lastYield = performance.now(); }
-    if (cs.display === 'contents') return (await figmaChildren(ctx, el, cs)).nodes;
-
-    let transform = null, restore = null;
-    const m = cssMatrix(cs);
-    if (m && !(m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1)) {
-      const props = ['transform', 'rotate', 'scale', 'translate'];
-      const saved = props.map((p) => [p, el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]);
-      props.forEach((p) => el.style.setProperty(p, 'none', 'important'));
-      restore = () => saved.forEach(([p, v, prio]) => { if (v) el.style.setProperty(p, v, prio); else el.style.removeProperty(p); });
-      transform = m;
-    }
-    try {
-      const rect = el.getBoundingClientRect();
-      const b = { x: rect.left + ctx.sx, y: rect.top + ctx.sy, w: rect.width, h: rect.height };
-      const node = { type: 'FRAME', name: layerName(el), x: r2(b.x), y: r2(b.y), w: r2(b.w), h: r2(b.h) };
-      if (cs.position === 'absolute' || cs.position === 'fixed') node.absolute = true;
-      node.z = stackKey(cs);
-      const grow = parseFloat(cs.flexGrow);
-      if (grow > 0) node.flexGrow = grow;
-      if (parseFloat(cs.opacity) < 1) node.opacity = r2(parseFloat(cs.opacity));
-      if (transform) {
-        const [tox, toy] = cs.transformOrigin.split(/\s+/).map(parseFloat);
-        const ox = b.x + (tox || 0), oy = b.y + (toy || 0);
-        const t = transform;
-        node.transform = { a: r2c(t.a), b: r2c(t.b), c: r2c(t.c), d: r2c(t.d), x: r2(ox + t.a * (b.x - ox) + t.c * (b.y - oy) + t.e), y: r2(oy + t.b * (b.x - ox) + t.d * (b.y - oy) + t.f) };
-        node.absolute = true;
-      }
-      const visible = cs.visibility === 'visible';
-      if (visible && b.w > 0 && b.h > 0) Object.assign(node, await boxPaints(ctx, el, cs, b));
-      if (tag !== 'body' && tag !== 'html' && ['hidden', 'clip', 'auto', 'scroll'].some((v) => cs.overflowX === v || cs.overflowY === v)) node.clips = true;
-
-      if (tag === 'svg') {
-        if (!visible || !b.w || !b.h) return null;
-        const svg = inlineSvg(ctx, el, { x: 0, y: 0, w: b.w, h: b.h });
-        return { ...node, type: 'SVG', svg, name: el.getAttribute('aria-label') || node.name };
-      }
-      if (['img', 'video', 'canvas'].includes(tag)) {
-        if (!visible) return null;
-        let src = tag === 'img' ? el.currentSrc || el.src : tag === 'video' ? el.poster : null;
-        if (tag === 'canvas') { try { src = el.toDataURL('image/png'); } catch { src = null; } }
-        const fill = src ? await imageFill(ctx, src, b.w, b.h, cs.objectFit) : null;
-        if (!fill) { ctx.missing.push(src || `${tag} without a source`); node.fills = [...(node.fills || []), solid({ r: 217, g: 217, b: 217, a: 1 })]; }
-        else node.fills = [...(node.fills || []), fill];
-        node.name = el.alt || node.name;
-        node.clips = true;
-        return node;
-      }
-      if (['iframe', 'object', 'embed'].includes(tag)) {
-        ctx.missing.push(`embedded ${tag} (${el.src || el.data || 'no source'})`);
-        node.fills = [solid({ r: 217, g: 217, b: 217, a: 1 })];
-        return node;
-      }
-      if (['input', 'textarea', 'select'].includes(tag)) {
-        const type = (el.type || '').toLowerCase();
-        if (type === 'checkbox' || type === 'radio') {
-          const shapes = paintControl(ctx, el, cs, { x: 0, y: 0, w: b.w, h: b.h });
-          return { ...node, type: 'SVG', svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${num(b.w)}" height="${num(b.h)}" viewBox="0 0 ${num(b.w)} ${num(b.h)}">${shapes}</svg>` };
-        }
-        let value = tag === 'select' ? (el.options[el.selectedIndex] || {}).text || '' : type === 'password' ? '•'.repeat(el.value.length) : el.value;
-        let color = cs.color;
-        if (!value && el.placeholder) { value = el.placeholder; color = ctx.win.getComputedStyle(el, '::placeholder').color; }
-        node.children = [];
-        if (value) {
-          const cb = contentBox(cs, b), fs = parseFloat(cs.fontSize) || 13;
-          const lh = parseFloat(cs.lineHeight) || fs * 1.2;
-          const st = textStyle(ctx, el, cs);
-          st.fill = solid(parseColor(ctx, color) || { r: 117, g: 117, b: 117, a: 1 });
-          const ty = tag === 'textarea' ? cb.y : cb.y + (cb.h - lh) / 2;
-          const align = ['submit', 'button', 'reset'].includes(type) ? 'CENTER' : 'LEFT';
-          node.children.push({ type: 'TEXT', name: value.slice(0, 40), x: r2(cb.x), y: r2(ty), w: r2(cb.w), h: r2(tag === 'textarea' ? cb.h : lh), text: value, align, sizing: 'FIXED', segments: [{ ...st, len: value.length, lh: r2(lh) }] });
-          ctx.stats.text++;
-        }
-        node.layout = inferLayout(node, { P: padsOf(cs) });
-        return node;
-      }
-
-      // An element holding only inline text: a single text layer, or a frame around it when it has its own box.
-      const P = padsOf(cs);
-      if (!el.shadowRoot && inlineOnly(ctx, el) && el.textContent.trim()) {
-        const data = textRuns(ctx, el);
-        if (!data) return hasPaint(node) ? node : null;
-        const block = cs.display !== 'inline';
-        const geom = lineRects(ctx, el);
-        if (block) geom.box = contentBox(cs, b);
-        const text = await makeText(ctx, el, cs, data, geom);
-        if (!text) return hasPaint(node) ? node : null;
-        const bare = !hasPaint(node) && !P.t && !P.r && !P.b && !P.l;
-        if (bare && !node.radii) {
-          text.name = text.name || node.name;
-          text.absolute = node.absolute; text.z = node.z; if (node.flexGrow) text.flexGrow = node.flexGrow;
-          if (node.transform) text.transform = node.transform;
-          const pcs = el.parentElement ? ctx.win.getComputedStyle(el.parentElement) : null;
-          const inRow = pcs && (/flex|grid/.test(pcs.display));
-          if (block && !inRow && text.type === 'TEXT' && text.sizing === 'HUG' && !/^inline/.test(cs.display)) {
-            // Block-level text keeps its box width, so it can be stretched in auto layout.
-            const cb = contentBox(cs, b);
-            text.x = r2(cb.x); text.w = r2(cb.w); text.sizing = 'FIXED';
-          }
-          return text;
-        }
-        node.children = [text];
-        node.layout = inferLayout(node, layoutInfo(cs, P));
-        return node;
-      }
-
-      const kids = await figmaChildren(ctx, el, cs);
-      node.children = kids.nodes;
-      if (!node.children.length) return hasPaint(node) || node.radii ? node : null;
-      node.layout = inferLayout(node, layoutInfo(cs, P));
-      // Transparent wrappers that add nothing collapse into their only child.
-      if (!hasPaint(node) && !node.radii && node.children.length === 1 && !P.t && !P.r && !P.b && !P.l) {
-        const c = node.children[0];
-        if (Math.abs(c.x - node.x) <= 1 && Math.abs(c.y - node.y) <= 1 && Math.abs(c.w - node.w) <= 1 && Math.abs(c.h - node.h) <= 1) {
-          if (node.absolute) c.absolute = true;
-          if (node.flexGrow) c.flexGrow = node.flexGrow;
-          c.z = node.z;
-          return c;
-        }
-      }
-      return node;
-    } finally {
-      if (restore) restore();
-    }
-  }
-  const r2c = (v) => Math.round(v * 10000) / 10000;
 
   function layoutInfo(cs, P) {
     const info = { P };
@@ -2240,60 +1831,354 @@
     return info;
   }
 
-  async function figmaChildren(ctx, el, cs) {
-    const nodes = [];
-    for (const child of childrenOf(el)) {
-      if (child.nodeType === 3) {
-        if (!child.nodeValue.trim()) continue;
-        const parent = child.parentElement || el;
-        const pcs = parent === el ? cs : ctx.win.getComputedStyle(parent);
-        if (pcs.visibility !== 'visible') continue;
-        const data = textRuns(ctx, parent, child);
-        if (!data) continue;
-        const t = await makeText(ctx, parent, pcs, data, lineRects(ctx, child));
-        if (t) nodes.push(t);
-      } else if (child.nodeType === 1) {
-        const n = await figmaNode(ctx, child);
-        if (Array.isArray(n)) nodes.push(...n); else if (n) nodes.push(n);
-      }
+
+  // The converter only adds auto layout where a container has one even gap. This pass adds it to the rest:
+  // uneven spacing becomes nested stacks, spanning children Fill, content-sized frames Hug.
+  function addAutoLayout(document, trace, doc, win, rotated = new Map()) {
+    const changes = document.nodeChanges;
+    const key = (g) => g.sessionID + ':' + g.localID;
+    const kids = new Map();
+    for (const c of changes) {
+      if (!c.parentIndex) continue;
+      const k = key(c.parentIndex.guid);
+      if (!kids.has(k)) kids.set(k, []);
+      kids.get(k).push(c);
     }
-    return { nodes };
+    const order = (a, b) => {
+      const pa = a.parentIndex.position, pb = b.parentIndex.position;
+      return /^\d+$/.test(pa) && /^\d+$/.test(pb) ? pa - pb : pa < pb ? -1 : pa > pb ? 1 : 0;
+    };
+    const elOf = new Map();
+    for (const e of (trace && trace.entries) || []) {
+      if (!e.domPath || e.domPath.includes('::text')) continue;
+      let el = null;
+      try { el = e.domPath === ':scope' ? doc.body : doc.body.querySelector(e.domPath); } catch {}
+      if (el) elOf.set(key(e.guid), el);
+    }
+    let nextId = Math.max(...changes.map((c) => c.guid.localID)) + 1;
+    const zeros = { t: 0, r: 0, b: 0, l: 0 };
+
+    const toItem = (c) => {
+      const el = elOf.get(key(c.guid));
+      const cs = el ? win.getComputedStyle(el) : null;
+      const t = c.transform || { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+      const rotated = Math.abs(t.m01) > 1e-3 || Math.abs(t.m10) > 1e-3;
+      return {
+        change: c, type: c.type === 'TEXT' ? 'TEXT' : 'FRAME', sizing: c.type === 'TEXT' ? 'HUG' : 'FIXED',
+        x: t.m02, y: t.m12, w: c.size ? c.size.x : 0, h: c.size ? c.size.y : 0,
+        absolute: rotated || c.stackPositioning === 'ABSOLUTE' || !!(cs && /absolute|fixed/.test(cs.position)),
+        flexGrow: cs ? parseFloat(cs.flexGrow) || 0 : 0, z: cs ? stackKey(cs) : 0,
+      };
+    };
+
+    const write = (F, node, L) => {
+      const H = L.mode === 'HORIZONTAL';
+      Object.assign(F, {
+        stackMode: L.mode, stackSpacing: L.gap || 0,
+        stackPrimaryAlignItems: L.primaryAlign, stackCounterAlignItems: L.counterAlign,
+        stackHorizontalPadding: L.pad.l, stackVerticalPadding: L.pad.t, stackPaddingRight: L.pad.r, stackPaddingBottom: L.pad.b,
+        stackPrimarySizing: L.hugPrimary ? 'RESIZE_TO_FIT' : 'FIXED', stackCounterSizing: L.hugCross ? 'RESIZE_TO_FIT' : 'FIXED',
+      });
+      if (L.wrap) { F.stackWrap = 'WRAP'; F.stackCounterSpacing = L.crossGap || 0; }
+      const hugW = H ? L.hugPrimary : L.hugCross, hugH = H ? L.hugCross : L.hugPrimary;
+      node.children.forEach((item, idx) => {
+        let c = item.change;
+        if (!c) {
+          // A nested stack: a plain, transparent frame in the converter's own format.
+          c = {
+            guid: { sessionID: 0, localID: nextId++ }, phase: 'CREATED', type: 'FRAME', name: 'Stack', visible: true, opacity: 1,
+            size: { x: item.w, y: item.h }, transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+            cornerRadius: 0, strokeWeight: 0, strokeAlign: 'INSIDE', strokeJoin: 'MITER', fillPaints: [], strokePaints: [], effects: [], frameMaskDisabled: true,
+          };
+          changes.push(c);
+        }
+        c.parentIndex = { guid: F.guid, position: String(idx) };
+        c.transform = { ...c.transform, m02: r2(item.x - node.x), m12: r2(item.y - node.y) };
+        // Child settings the converter left for a frame without auto layout would misfire now, so start clean.
+        delete c.stackChildPrimaryGrow;
+        delete c.stackChildAlignSelf;
+        if (item.absolute) c.stackPositioning = 'ABSOLUTE';
+        const lp = item.lp || {};
+        const fillW = H ? lp.grow : lp.crossFill, fillH = H ? lp.crossFill : lp.grow;
+        if (c.type !== 'TEXT') {
+          if ((H ? fillH : fillW) && !(H ? hugH : hugW)) c.stackChildAlignSelf = 'STRETCH';
+          if ((H ? fillW : fillH) && !(H ? hugW : hugH)) c.stackChildPrimaryGrow = 1;
+        }
+        if (!item.change) write(c, item, item.layout);
+      });
+    };
+
+    let added = 0;
+    for (const F of changes.slice()) {
+      if (F.type !== 'FRAME' || !F.parentIndex || (F.stackMode && F.stackMode !== 'NONE')) continue;
+      const children = (kids.get(key(F.guid)) || []).slice().sort(order);
+      if (!children.length) continue;
+      const el = elOf.get(key(F.guid));
+      const cs = el ? win.getComputedStyle(el) : null;
+      const node = { x: 0, y: 0, w: F.size.x, h: F.size.y, children: children.map(toItem) };
+      const L = inferLayout(node, cs ? layoutInfo(cs, padsOf(cs)) : { P: zeros });
+      if (!L) continue;
+      write(F, node, L);
+      added++;
+    }
+    // Put rotations back: rotate around the CSS transform-origin, keeping the layer's own size.
+    for (const c of changes) {
+      const el = elOf.get(key(c.guid));
+      const r = el && rotated.get(el);
+      if (!r || !c.transform) continue;
+      const sx = Math.hypot(r.a, r.b) || 1, sy = Math.hypot(r.c, r.d) || 1;
+      const cos = r.a / sx, sin = r.b / sx;
+      const p0x = c.transform.m02, p0y = c.transform.m12, Ox = p0x + r.ox, Oy = p0y + r.oy;
+      c.transform = {
+        m00: cos, m01: -sin, m02: Ox + r.a * (p0x - Ox) + r.c * (p0y - Oy) + r.e,
+        m10: sin, m11: cos, m12: Oy + r.b * (p0x - Ox) + r.d * (p0y - Oy) + r.f,
+      };
+      if (c.size && (Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01)) c.size = { x: c.size.x * sx, y: c.size.y * sy };
+      const parent = c.parentIndex && changes.find((p) => key(p.guid) === key(c.parentIndex.guid));
+      if (parent && parent.stackMode && parent.stackMode !== 'NONE') c.stackPositioning = 'ABSOLUTE';
+    }
+    // Let Figma size text to its own font metrics: single lines grow sideways, paragraphs grow downwards.
+    for (const c of changes) {
+      if (c.type !== 'TEXT' || !c.size) continue;
+      const lh = c.lineHeight && c.lineHeight.units === 'PIXELS' ? c.lineHeight.value : (c.fontSize || 16) * 1.25;
+      c.textAutoResize = c.size.y < lh * 1.6 ? 'WIDTH_AND_HEIGHT' : 'HEIGHT';
+    }
+    // Name frames after their elements instead of "Container".
+    for (const c of changes) {
+      if (c.type !== 'FRAME' || c.name !== 'Container') continue;
+      const el = elOf.get(key(c.guid));
+      if (el) c.name = layerName(el);
+    }
+    return added;
   }
 
-  async function htmlToFigmaTree(doc, layoutWidth, viewportH, report = () => {}, bounds = null) {
-    const win = doc.defaultView, root = doc.documentElement, body = doc.body;
-    let fx = 0, fy = 0, width = layoutWidth;
-    let height = Math.ceil(Math.max(root.scrollHeight, body ? body.scrollHeight : 0, viewportH));
-    if (bounds) { fx = Math.floor(bounds.left); fy = Math.floor(bounds.top); width = Math.ceil(bounds.right) - fx; height = Math.ceil(bounds.bottom) - fy; }
-    const ctx = {
-      doc, win, sx: win.scrollX, sy: win.scrollY, defs: [], names: new Map(), n: 0,
-      stats: { groups: 0, text: 0, images: 0, missing: 0, autoLayout: 0, frames: 0 },
-      colors: new Map(), metrics: new Map(), images: new Map(), textFills: new Map(), textGrads: new Map(),
-      probe: doc.createElement('canvas').getContext('2d', { willReadFrequently: true }), bodyPropagated: false,
-      fonts: new Set(), missing: [], imageIds: new Map(), payloadImages: {},
-      total: Math.max(1, doc.getElementsByTagName('*').length), done: 0, report, lastYield: performance.now(),
-    };
-    const rootBg = parseColor(ctx, win.getComputedStyle(root).backgroundColor);
-    const bodyBg = body ? parseColor(ctx, win.getComputedStyle(body).backgroundColor) : null;
-    if (!rootBg && bodyBg) ctx.bodyPropagated = true;
-    const pageBg = rootBg || bodyBg || { r: 255, g: 255, b: 255, a: 1 };
+  // ---------- Auto layout: Figma's own clipboard format, via @figit/dom-to-figma ----------
 
-    const page = { type: 'FRAME', name: state.name.replace(/\.html?$/i, ''), x: fx, y: fy, w: width, h: height, fills: [solid(pageBg)], clips: true, children: [] };
-    const bodyNode = body ? await figmaNode(ctx, body) : null;
-    if (Array.isArray(bodyNode)) page.children.push(...bodyNode); else if (bodyNode) page.children.push(bodyNode);
-    page.layout = inferLayout(page, { P: { t: 0, r: 0, b: 0, l: 0 } });
-    if (page.layout) { page.layout.hugPrimary = page.layout.mode === 'VERTICAL' && page.layout.hugPrimary; page.layout.hugCross = false; }
-    settleSizing(page, false, false);
+  const FIGIT_URL = new URL('vendor/figit-dom-to-figma.js', document.baseURI).href;
+  const INTER_URL = new URL('vendor/inter-fallback.js', document.baseURI).href;
 
-    const count = (n) => {
-      if (n.type === 'FRAME') { ctx.stats.frames++; if (n.layout) ctx.stats.autoLayout++; }
-      (n.children || []).forEach(count);
+  function loadScript(doc, url) {
+    return new Promise((resolve, reject) => {
+      const el = doc.createElement('script');
+      el.src = url;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error('the Figma converter could not be loaded'));
+      (doc.head || doc.documentElement).appendChild(el);
+    });
+  }
+
+  const base64Bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const GREY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mN89+7dfwAJYgPhYRxb4AAAAABJRU5ErkJggg==';
+
+  // CSS background photos and icon-font glyphs become real <img> elements, which the converter turns into image fills.
+  function prepareForNative(doc, win) {
+    const ctx = { doc, win, colors: new Map(), probe: doc.createElement('canvas').getContext('2d', { willReadFrequently: true }) };
+
+    // Web components: swap each host for plain elements carrying the shadow content's computed styles.
+    const copyStyles = (from, to) => {
+      const cs = win.getComputedStyle(from);
+      for (let i = 0; i < cs.length; i++) {
+        const prop = cs[i];
+        if (!SKIP_PROPS.test(prop)) to.style.setProperty(prop, cs.getPropertyValue(prop));
+      }
     };
-    count(page);
-    return {
-      tree: { format: 'html-to-figma', version: 1, name: page.name, width, height, root: page, images: ctx.payloadImages },
-      stats: ctx.stats, fonts: ctx.fonts, missing: ctx.missing,
+    const flatten = (host) => {
+      const out = doc.createElement('div');
+      copyStyles(host, out);
+      out.className = host.localName;
+      for (const n of host.shadowRoot.childNodes) {
+        if (n.nodeType === 1 && (n.localName === 'style' || n.localName === 'link')) continue;
+        const clone = n.cloneNode(true);
+        if (n.nodeType === 1) {
+          const src = [n, ...n.querySelectorAll('*')], dst = [clone, ...clone.querySelectorAll('*')];
+          src.forEach((s, i) => copyStyles(s, dst[i]));
+          dst.forEach((d) => { if (d.localName === 'slot') d.replaceWith(...[...host.childNodes].map((c) => c.cloneNode(true))); });
+        }
+        out.appendChild(clone);
+      }
+      host.replaceWith(out);
     };
+    for (const host of [...doc.querySelectorAll('*')].filter((el) => el.shadowRoot)) flatten(host);
+
+    // Rotated or scaled elements: the converter only sees their bounding box, so measure them upright
+    // and re-apply the rotation to the Figma layer afterwards (see addAutoLayout).
+    const rotated = new Map();
+    for (const el of doc.querySelectorAll('body *')) {
+      const cs = win.getComputedStyle(el);
+      const m = cssMatrix(cs);
+      if (!m || (m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1)) continue;
+      const [ox, oy] = cs.transformOrigin.split(/\s+/).map(parseFloat);
+      rotated.set(el, { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f, ox: ox || 0, oy: oy || 0 });
+    }
+    for (const el of rotated.keys()) ['transform', 'rotate', 'scale', 'translate'].forEach((p) => el.style.setProperty(p, 'none', 'important'));
+
+    // Icon sprites: replace <use href="#id"> with a copy of what it points at.
+    for (const u of doc.querySelectorAll('svg use')) {
+      const href = u.getAttribute('href') || u.getAttribute('xlink:href') || '';
+      const target = href.startsWith('#') ? doc.getElementById(href.slice(1)) : null;
+      if (!target) continue;
+      const SVGNS = 'http://www.w3.org/2000/svg';
+      const symbol = target.localName === 'symbol' || target.localName === 'svg';
+      const g = doc.createElementNS(SVGNS, symbol ? 'svg' : 'g');
+      if (symbol) {
+        ['viewBox', 'preserveAspectRatio'].forEach((a) => { if (target.getAttribute(a)) g.setAttribute(a, target.getAttribute(a)); });
+        g.setAttribute('x', u.getAttribute('x') || 0); g.setAttribute('y', u.getAttribute('y') || 0);
+        g.setAttribute('width', u.getAttribute('width') || '100%'); g.setAttribute('height', u.getAttribute('height') || '100%');
+        target.childNodes.forEach((n) => g.appendChild(n.cloneNode(true)));
+      } else g.appendChild(target.cloneNode(true));
+      const ucs = win.getComputedStyle(u);
+      g.setAttribute('fill', ucs.fill); g.setAttribute('stroke', ucs.stroke);
+      u.replaceWith(g);
+    }
+    for (const el of doc.querySelectorAll('body, body *')) {
+      if (el.namespaceURI !== 'http://www.w3.org/1999/xhtml' || NO_PSEUDO.has(el.localName)) continue;
+      const cs = win.getComputedStyle(el);
+      if (cs.display === 'none' || !/url\(/.test(cs.backgroundImage)) continue;
+      const layers = splitTop(cs.backgroundImage);
+      const i = layers.findIndex((l) => /^url\(/.test(l));
+      const src = layers[i].match(/url\(\s*["']?(.*?)["']?\s*\)/)[1];
+      const size = (splitTop(cs.backgroundSize)[i] || 'auto').trim();
+      const img = doc.createElement('img');
+      img.src = src;
+      img.alt = 'background';
+      img.setAttribute('data-h2f-bg', '');
+      const fit = size === 'contain' ? 'contain' : 'cover';
+      img.style.cssText = `position:absolute;left:0;top:0;width:100%;height:100%;object-fit:${fit};object-position:${(splitTop(cs.backgroundPosition)[i] || '50% 50%').trim()};z-index:-1;pointer-events:none;border-radius:inherit;margin:0;`;
+      if (cs.position === 'static') el.style.setProperty('position', 'relative');
+      if (cs.zIndex === 'auto') el.style.setProperty('z-index', '0');
+      el.style.setProperty('background-image', layers.filter((l) => !/^url\(/.test(l)).join(', ') || 'none', 'important');
+      el.insertBefore(img, el.firstChild);
+    }
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const icons = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const parent = n.parentElement;
+      if (!parent || !n.nodeValue.trim()) continue;
+      const cs = win.getComputedStyle(parent);
+      if (ICON_FONT.test(cs.fontFamily) || PUA.test(n.nodeValue.trim())) icons.push(n);
+    }
+    for (const n of icons) {
+      const range = doc.createRange();
+      range.selectNodeContents(n);
+      const r = range.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const cs = win.getComputedStyle(n.parentElement);
+      const img = doc.createElement('img');
+      img.src = rasterGlyph(ctx, cs, n.nodeValue.trim(), r.width, r.height);
+      img.alt = 'icon';
+      img.style.cssText = `display:inline-block;width:${r.width}px;height:${r.height}px;vertical-align:middle;margin:0;`;
+      n.replaceWith(img);
+    }
+    return { rotated };
+  }
+
+  function rasterGlyph(ctx, cs, text, w, h) {
+    const scale = 4, c = ctx.doc.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w * scale)); c.height = Math.max(1, Math.ceil(h * scale));
+    const g = c.getContext('2d');
+    g.scale(scale, scale);
+    g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    g.fillStyle = cs.color;
+    g.textBaseline = 'middle';
+    g.fillText(text, 0, h / 2);
+    return c.toDataURL('image/png');
+  }
+
+  async function nativeConvert(frame, svgResult, report) {
+    const doc = frame.contentDocument, win = frame.contentWindow;
+    report(0.05);
+    if (!window.__h2fInter) await loadScript(document, INTER_URL);
+    if (!win.__h2fFigit) await loadScript(doc, FIGIT_URL);
+    const prep = prepareForNative(doc, win);
+    await frames(win);
+    report(0.15);
+
+    // Bytes handed to the converter are created in the page's own realm, where the converter runs.
+    const toRealm = (u8) => { const out = new win.Uint8Array(u8.length); out.set(u8); return out.buffer; };
+    const missing = [];
+    const fontsource = win.__h2fFigit.createFontsourceLoader();
+    const fontLoader = async (props) => {
+      try {
+        return await Promise.race([fontsource(props), sleep(6000).then(() => { throw new Error('timeout'); })]);
+      } catch {
+        // No network for fonts: measure with Inter. Figma still uses the requested font when you paste.
+        const w = props.weight >= 600 ? 700 : 400;
+        return { bytes: toRealm(base64Bytes(window.__h2fInter[w])), resolvedFamily: 'Inter', resolvedWeight: props.weight, resolvedItalic: props.italic };
+      }
+    };
+    const dataUrlFile = (url) => {
+      const comma = url.indexOf(',');
+      const head = url.slice(5, comma), body = url.slice(comma + 1);
+      const bytes = /;base64/i.test(head) ? base64Bytes(body) : new TextEncoder().encode(decodeURIComponent(body));
+      return { bytes: toRealm(bytes), mimeType: head.split(';')[0] || 'image/png' };
+    };
+    const imageLoader = async ({ src, element }) => {
+      const url = (element && element.currentSrc) || src;
+      try {
+        if (/^data:/i.test(url)) return dataUrlFile(url);
+        try {
+          const res = await fetch(url);
+          if (res.ok) return { bytes: toRealm(new Uint8Array(await res.arrayBuffer())), mimeType: res.headers.get('content-type') || 'image/png' };
+        } catch {}
+        if (element && element.complete && element.naturalWidth) {
+          const c = document.createElement('canvas');
+          c.width = element.naturalWidth; c.height = element.naturalHeight;
+          c.getContext('2d').drawImage(element, 0, 0);
+          return dataUrlFile(c.toDataURL('image/png'));
+        }
+        throw new Error('unreadable');
+      } catch {
+        missing.push(url);
+        return { bytes: toRealm(base64Bytes(GREY_PNG)), mimeType: 'image/png' };
+      }
+    };
+
+    let tick = 0.15;
+    const timer = setInterval(() => { tick = Math.min(0.95, tick + (0.95 - tick) * 0.08); report(tick); }, 200);
+    try {
+      const figit = win.__h2fFigit;
+      const converter = figit.createFigmaConverter({ fontLoader, imageLoader, trace: true });
+      const result = await converter.convert({ element: doc.body, width: svgResult.width, height: svgResult.height, name: state.name.replace(/\.html?$/i, '') });
+      addAutoLayout(result.document, result.trace, doc, win, prep.rotated);
+      const html = figit.composeClipboardHtml(figit.encodeFigmaData(result.document).base64);
+      const changes = result.document.nodeChanges;
+      const stats = { frames: 0, autoLayout: 0, text: 0, images: 0 };
+      for (const c of changes) {
+        if (c.type === 'FRAME') { stats.frames++; if (c.stackMode && c.stackMode !== 'NONE') stats.autoLayout++; }
+        if (c.type === 'TEXT') stats.text++;
+        if ((c.fillPaints || []).some((f) => f.type === 'IMAGE')) stats.images++;
+      }
+      report(1);
+      return { html, stats, missing };
+    } finally {
+      clearInterval(timer);
+    }
+  }
+
+  async function copyHtml(html) {
+    let ok = false;
+    const onCopy = (e) => { e.clipboardData.setData('text/html', html); e.preventDefault(); ok = true; };
+    document.addEventListener('copy', onCopy);
+    try { document.execCommand('copy'); } catch {}
+    document.removeEventListener('copy', onCopy);
+    if (ok) return true;
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }) })]);
+      return true;
+    } catch { return false; }
+  }
+
+  // Without "Run the page's scripts", strip scripts and inline handlers; the frame itself still runs the converter.
+  function withoutScripts(html) {
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    parsed.querySelectorAll('script').forEach((el) => el.remove());
+    for (const el of parsed.querySelectorAll('*')) {
+      for (const a of [...el.attributes]) {
+        if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+      }
+    }
+    const dt = parsed.doctype ? `<!DOCTYPE ${parsed.doctype.name}>` : '<!DOCTYPE html>';
+    return dt + parsed.documentElement.outerHTML;
   }
 
   render();
