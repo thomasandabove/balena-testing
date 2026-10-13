@@ -69,7 +69,7 @@
   details[open] summary { margin-bottom: 8px; }
   textarea { width: 100%; min-height: 120px; resize: vertical; font: 12px/1.45 var(--font-mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
 
-  .seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { all: unset; cursor: pointer; text-align: center; padding: 8px 4px; font-size: 12px; line-height: 1.25; border-left: 1px solid var(--line); }
   .seg button:first-child { border-left: 0; }
   .seg button small { display: block; font: 11px var(--font-mono); color: var(--muted); }
@@ -176,16 +176,18 @@
 
       <section class="step" aria-labelledby="s2">
         <h2 id="s2"><b>2</b> Frame size</h2>
-        <div class="seg" role="group" aria-label="Viewport width">
-          <button type="button" data-w="1440" aria-pressed="true">Desktop<small>1440</small></button>
+        <div class="seg" role="group" aria-label="Frame size">
+          <button type="button" data-w="fit" aria-pressed="true">Fit<small>content</small></button>
+          <button type="button" data-w="1440" aria-pressed="false">Desktop<small>1440</small></button>
           <button type="button" data-w="1280" aria-pressed="false">Laptop<small>1280</small></button>
           <button type="button" data-w="768" aria-pressed="false">Tablet<small>768</small></button>
           <button type="button" data-w="390" aria-pressed="false">Mobile<small>390</small></button>
         </div>
         <div class="fields">
-          <label class="f">Width (px)<input type="number" id="widthInput" min="200" max="4000" step="1" value="1440"></label>
+          <label class="f"><span id="widthLabel">Base width (px)</span><input type="number" id="widthInput" min="200" max="4000" step="1" value="1440"></label>
           <label class="f">Viewport height (px)<input type="number" id="heightInput" min="200" max="4000" step="1" value="900"></label>
         </div>
+        <p class="notes" id="sizeHint" style="margin:0">The frame grows to include everything on the page, including large canvases and artboards beyond the screen.</p>
         <label class="check"><input type="checkbox" id="scriptsInput"><span>Run the page's scripts<small>Switched on automatically when your file has scripts. Needed for pages built with JavaScript or Tailwind's CDN. Only use with files you trust.</small></span></label>
       </section>
 
@@ -221,6 +223,7 @@
           <li>Text as live text layers with font, size, weight, colour and letter spacing.</li>
           <li>Images, inline SVG icons, opacity and overflow clipping.</li>
           <li><code>::before</code>/<code>::after</code> content, list bullets, rotated and scaled elements, inner shadows, text shadows, tiled backgrounds and icon fonts.</li>
+          <li>Fit content sizes the frame to the whole page, so canvases and artboards laid out beyond the screen come across in full.</li>
           <li>Scroll-triggered animations are played to their end state, so content that fades in on scroll is included.</li>
           <li>Not carried over: blend modes, CSS filters and blurs, conic gradients and video playback.</li>
           <li>Stylesheets, scripts and images hosted on other websites may be blocked here. The tool lists anything that didn't load; upload those files together with your HTML.</li>
@@ -309,7 +312,7 @@
 </div></body></html>`;
 
   const $ = (s) => document.querySelector(s);
-  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, height: 900, scripts: false, scriptsTouched: false, svg: '', token: 0 };
+  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, scripts: false, scriptsTouched: false, svg: '', token: 0 };
   let previewUrl = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const SCRIPT_END = '<' + '/script>';
@@ -362,14 +365,15 @@
   function fitFrames() {
     const panel = $('#panelPage');
     const avail = Math.max(200, panel.clientWidth - 48);
-    const scale = Math.min(1, avail / state.width);
+    const w = state.liveWidth || state.width;
+    const scale = Math.min(1, avail / w);
     const box = $('#frameBox'), frame = $('#page');
-    frame.style.width = state.width + 'px';
+    frame.style.width = w + 'px';
     frame.style.height = state.height + 'px';
     frame.style.transform = `scale(${scale})`;
-    box.style.width = state.width * scale + 'px';
+    box.style.width = w * scale + 'px';
     box.style.height = state.height * scale + 'px';
-    $('#svgBox').style.width = Math.min(avail, state.width) + 'px';
+    $('#svgBox').style.width = Math.min(avail, w) + 'px';
   }
 
   // Records resources that fail to load, so the tool can say exactly what is missing.
@@ -392,7 +396,8 @@
     $('#fileName').textContent = state.name;
     $('#frameLabel').textContent = state.name;
     $('#sampleChip').hidden = !state.sample;
-    $('#dims').textContent = `${state.width} × ${state.height}`;
+    state.liveWidth = 0;
+    $('#dims').textContent = state.fit ? `Fit content · ${state.width} base` : `${state.width} × ${state.height}`;
     $('#scriptsInput').checked = state.scripts;
     showTab('page');
     fitFrames();
@@ -415,9 +420,12 @@
       progress('settle', 0);
       await settle(frame, (f) => { check(); progress('settle', f); });
       progress('reveal', 0);
+      if (state.fit) { await growToContent(frame); check(); }
       await reveal(frame, (f) => { check(); progress('reveal', f); });
       progress('convert', 0);
-      const result = await htmlToSvg(frame.contentDocument, state.width, state.height, (f) => { check(); progress('convert', f); });
+      const bounds = state.fit ? contentBounds(frame.contentDocument, frame.contentWindow) : null;
+      const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f); }, bounds);
+      if (state.fit) $('#dims').textContent = `Fit content · ${result.width} × ${result.height}`;
       check();
       progress('convert', 1);
       state.svg = result.svg;
@@ -520,14 +528,18 @@
   }
 
   function selectWidth(w) {
-    state.width = w;
-    $('#widthInput').value = w;
-    document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.w === w)));
+    state.fit = w === 'fit';
+    if (!state.fit) state.width = w;
+    $('#widthInput').value = state.width;
+    $('#widthLabel').textContent = state.fit ? 'Base width (px)' : 'Width (px)';
+    $('#sizeHint').hidden = !state.fit;
+    document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.w === String(w))));
   }
-  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { selectWidth(+b.dataset.w); render(); }));
+  document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => { selectWidth(b.dataset.w === 'fit' ? 'fit' : +b.dataset.w); render(); }));
   $('#widthInput').addEventListener('change', (e) => {
     const w = Math.round(Math.min(4000, Math.max(200, +e.target.value || 1440)));
-    selectWidth(w); render();
+    if (state.fit) { state.width = w; e.target.value = w; } else selectWidth(w);
+    render();
   });
   $('#heightInput').addEventListener('change', (e) => {
     state.height = Math.round(Math.min(4000, Math.max(200, +e.target.value || 900)));
@@ -635,6 +647,50 @@
     await Promise.race([Promise.all(pending), sleep(5000)]);
     report(1);
     await frames(win);
+  }
+
+  // Everything that paints, in page coordinates, ignoring what an overflow:hidden ancestor cuts off.
+  function contentBounds(doc, win) {
+    const sx = win.scrollX, sy = win.scrollY, root = doc.documentElement;
+    const out = { left: 0, top: 0, right: win.innerWidth, bottom: Math.max(root.scrollHeight, doc.body ? doc.body.scrollHeight : 0, win.innerHeight) };
+    const meet = (a, c) => {
+      const r = { l: Math.max(a.l, c.l), t: Math.max(a.t, c.t), r: Math.min(a.r, c.r), b: Math.min(a.b, c.b) };
+      return r.r > r.l && r.b > r.t ? r : null;
+    };
+    const visit = (el, clip) => {
+      const cs = win.getComputedStyle(el);
+      if (cs.display === 'none' || parseFloat(cs.opacity) === 0 || SKIP.has(el.localName)) return;
+      const rr = el.getBoundingClientRect();
+      const abs = { l: rr.left + sx, t: rr.top + sy, r: rr.right + sx, b: rr.bottom + sy };
+      const seen = clip ? meet(abs, clip) : (abs.r > abs.l && abs.b > abs.t ? abs : null);
+      if (seen && cs.visibility === 'visible' && cs.display !== 'contents') {
+        out.left = Math.min(out.left, seen.l); out.top = Math.min(out.top, seen.t);
+        out.right = Math.max(out.right, seen.r); out.bottom = Math.max(out.bottom, seen.b);
+      }
+      let inner = clip;
+      if (el !== root && el !== doc.body && ['hidden', 'clip', 'auto', 'scroll'].some((v) => cs.overflowX === v || cs.overflowY === v)) {
+        inner = clip ? meet(clip, abs) : abs;
+        if (!inner) return;
+      }
+      if (el.localName === 'svg') return;
+      for (const c of el.children) visit(c, inner);
+      if (el.shadowRoot) for (const c of el.shadowRoot.children) visit(c, inner);
+    };
+    visit(root, null);
+    return out;
+  }
+
+  // Fit mode: widen the page when content runs past the right edge (big canvases, rows of artboards).
+  async function growToContent(frame) {
+    const doc = frame.contentDocument, win = frame.contentWindow;
+    for (let i = 0; i < 3; i++) {
+      const need = Math.min(20000, Math.ceil(contentBounds(doc, win).right));
+      if (need <= (state.liveWidth || state.width) + 1) break;
+      state.liveWidth = need;
+      fitFrames();
+      await frames(win);
+      await sleep(60);
+    }
   }
 
   function finishAnimations(doc) {
@@ -782,10 +838,15 @@
     return out;
   }
 
-  async function htmlToSvg(doc, width, viewportH, report = () => {}) {
+  async function htmlToSvg(doc, layoutWidth, viewportH, report = () => {}, bounds = null) {
     const win = doc.defaultView;
     const root = doc.documentElement, body = doc.body;
-    const height = Math.ceil(Math.max(root.scrollHeight, body ? body.scrollHeight : 0, viewportH));
+    let fx = 0, fy = 0, width = layoutWidth;
+    let height = Math.ceil(Math.max(root.scrollHeight, body ? body.scrollHeight : 0, viewportH));
+    if (bounds) {
+      fx = Math.floor(bounds.left); fy = Math.floor(bounds.top);
+      width = Math.ceil(bounds.right) - fx; height = Math.ceil(bounds.bottom) - fy;
+    }
     const probe = doc.createElement('canvas').getContext('2d', { willReadFrequently: true });
     const ctx = {
       doc, win, sx: win.scrollX, sy: win.scrollY, defs: [], names: new Map(), n: 0,
@@ -803,7 +864,7 @@
     const content = await walk(root, ctx);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none">`
       + `<rect id="Background" width="${width}" height="${height}" ${paint('fill', pageBg)}/>`
-      + content
+      + (fx || fy ? `<g id="Page" transform="translate(${-fx} ${-fy})">${content}</g>` : content)
       + (ctx.defs.length ? `<defs>${ctx.defs.join('')}</defs>` : '')
       + `</svg>`;
     return { svg, width, height, stats: ctx.stats, fonts: ctx.fonts, missing: ctx.missing };
