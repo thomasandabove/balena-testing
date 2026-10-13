@@ -1728,6 +1728,12 @@
     const box0 = node[A.c], size = node[A.cz];
     const offs = items.map((it) => ({ L: it[A.c] - box0, R: box0 + size - (it[A.c] + it[A.cz]), z: it[A.cz] }));
     const minL = Math.min(...offs.map((o) => o.L)), minR = Math.min(...offs.map((o) => o.R));
+    // Block elements that fill the column but carry a left margin get an indent wrapper, so the column stays left-aligned.
+    if (mode === 'V') {
+      const idx = items.map((it, i) => (it.block && Math.abs(offs[i].R - minR) <= TOL && offs[i].L - minL > TOL ? i : -1)).filter((i) => i >= 0);
+      const others = offs.filter((o, i) => !idx.includes(i));
+      if (idx.length && others.every((o) => Math.abs(o.L - minL) <= TOL)) idx.forEach((i) => { items[i].indent = offs[i].L - minL; offs[i].L = minL; });
+    }
     // Prefer alignment against the CSS padding box; fall back to the measured edges.
     const cP0 = P[A.c0], cP1 = P[A.c1];
     const allMin = offs.every((o) => Math.abs(o.L - minL) <= TOL);
@@ -1743,7 +1749,7 @@
     else if (allMax) { counterAlign = 'MAX'; padB = minR; padA = Math.min(cP0, minL); }
     else return null;
     // Children spanning the cross axis become Fill (except text that simply hugs its words).
-    const stretch = new Set(items.filter((it, i) => Math.abs(offs[i].L - padA) <= TOL && Math.abs(offs[i].R - padB) <= TOL && !(it.type === 'TEXT' && it.sizing === 'HUG')));
+    const stretch = new Set(items.filter((it, i) => Math.abs(offs[i].L - padA) <= TOL && Math.abs(offs[i].R - padB) <= TOL && !(it.type === 'TEXT' && !it.block)));
     const maxCross = Math.max(...items.map((it) => it[A.cz]));
     const hugCross = !stretch.size && size - padA - padB - maxCross <= TOL;
 
@@ -1767,7 +1773,17 @@
       if (stretch.has(it)) it.lp.crossFill = true;
       if (info.flex && it.flexGrow > 0) it.lp.grow = true;
     }
-    reorder(node, items);
+    const placed = items.map((it) => {
+      if (!it.indent) return it;
+      const wrap = {
+        type: 'FRAME', name: 'Indent', x: it.x - it.indent, y: it.y, w: it.w + it.indent, h: it.h, children: [it], lp: { ...it.lp },
+        layout: { mode: 'VERTICAL', gap: 0, pad: { t: 0, r: 0, b: 0, l: r2(it.indent) }, primaryAlign: 'MIN', counterAlign: 'MIN', hugPrimary: true, hugCross: false },
+      };
+      it.lp = { crossFill: true };
+      delete it.indent;
+      return wrap;
+    });
+    reorder(node, placed);
     return { mode: mode === 'V' ? 'VERTICAL' : 'HORIZONTAL', gap, pad: roundPad(pad), primaryAlign, counterAlign, hugPrimary, hugCross };
   }
 
@@ -1848,18 +1864,54 @@
       const pa = a.parentIndex.position, pb = b.parentIndex.position;
       return /^\d+$/.test(pa) && /^\d+$/.test(pb) ? pa - pb : pa < pb ? -1 : pa > pb ? 1 : 0;
     };
-    const elOf = new Map();
+    const elOf = new Map(), ownerOf = new Map();
+    const resolve = (path) => { try { return !path || path === ':scope' ? doc.body : doc.body.querySelector(path); } catch { return null; } };
     for (const e of (trace && trace.entries) || []) {
-      if (!e.domPath || e.domPath.includes('::text')) continue;
-      let el = null;
-      try { el = e.domPath === ':scope' ? doc.body : doc.body.querySelector(e.domPath); } catch {}
+      if (!e.domPath) continue;
+      if (e.domPath.includes('::text')) { const el = resolve(e.domPath.split('::text')[0]); if (el) ownerOf.set(key(e.guid), el); continue; }
+      const el = resolve(e.domPath);
       if (el) elOf.set(key(e.guid), el);
     }
+    // Block-level elements that take their container's full width (minus margins), like paragraphs and headings.
+    const fillsColumn = (el, containerEl) => {
+      if (!el || el === containerEl || !el.parentElement) return false;
+      const cs = win.getComputedStyle(el);
+      if (!/^(block|list-item|flex|grid|table|flow-root)$/.test(cs.display) || cs.float !== 'none' || /absolute|fixed/.test(cs.position)) return false;
+      const pcs = win.getComputedStyle(el.parentElement);
+      const contentW = el.parentElement.clientWidth - (parseFloat(pcs.paddingLeft) || 0) - (parseFloat(pcs.paddingRight) || 0);
+      return Math.abs((parseFloat(cs.marginLeft) || 0) + el.getBoundingClientRect().width + (parseFloat(cs.marginRight) || 0) - contentW) <= 2;
+    };
+    const fillText = new Set();
+    // Where a line mixes styles, the converter splits it into text layers and drops the spaces between them.
+    // Re-measure each single-line text layer from the page itself, so gaps between them come out right.
+    const domTextBox = (c, containerEl) => {
+      if (!containerEl || !c.textData) return {};
+      const chars = c.textData.characters.replace(/\s+/g, ' ').trim();
+      const owner = ownerOf.get(key(c.guid)) || elOf.get(key(c.guid));
+      if (!owner || !chars) return {};
+      let range = null;
+      for (const n of owner.childNodes) {
+        if (n.nodeType !== 3) continue;
+        const v = n.nodeValue, start = v.search(/\S/);
+        if (start < 0 || !v.replace(/\s+/g, ' ').trim().startsWith(chars.slice(0, 12))) continue;
+        range = doc.createRange();
+        range.setStart(n, start);
+        range.setEnd(n, v.length - v.match(/\s*$/)[0].length);
+        break;
+      }
+      if (!range && owner.textContent.replace(/\s+/g, ' ').trim() === chars) { range = doc.createRange(); range.selectNodeContents(owner); }
+      if (!range) return {};
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+      if (rects.length !== 1) return {};
+      const cr = containerEl.getBoundingClientRect();
+      return { x: rects[0].left - cr.left, w: rects[0].width };
+    };
     let nextId = Math.max(...changes.map((c) => c.guid.localID)) + 1;
     const zeros = { t: 0, r: 0, b: 0, l: 0 };
 
-    const toItem = (c) => {
+    const toItem = (c, containerEl) => {
       const el = elOf.get(key(c.guid));
+      const owner = c.type === 'TEXT' ? ownerOf.get(key(c.guid)) || el : el;
       const cs = el ? win.getComputedStyle(el) : null;
       const t = c.transform || { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
       const rotated = Math.abs(t.m01) > 1e-3 || Math.abs(t.m10) > 1e-3;
@@ -1868,6 +1920,8 @@
         x: t.m02, y: t.m12, w: c.size ? c.size.x : 0, h: c.size ? c.size.y : 0,
         absolute: rotated || c.stackPositioning === 'ABSOLUTE' || !!(cs && /absolute|fixed/.test(cs.position)),
         flexGrow: cs ? parseFloat(cs.flexGrow) || 0 : 0, z: cs ? stackKey(cs) : 0,
+        block: fillsColumn(owner, containerEl),
+        ...(c.type === 'TEXT' ? domTextBox(c, containerEl) : {}),
       };
     };
 
@@ -1900,9 +1954,15 @@
         if (item.absolute) c.stackPositioning = 'ABSOLUTE';
         const lp = item.lp || {};
         const fillW = H ? lp.grow : lp.crossFill, fillH = H ? lp.crossFill : lp.grow;
-        if (c.type !== 'TEXT') {
-          if ((H ? fillH : fillW) && !(H ? hugH : hugW)) c.stackChildAlignSelf = 'STRETCH';
-          if ((H ? fillW : fillH) && !(H ? hugW : hugH)) c.stackChildPrimaryGrow = 1;
+        const stretchOk = (H ? fillH : fillW) && !(H ? hugH : hugW);
+        const growOk = (H ? fillW : fillH) && !(H ? hugW : hugH);
+        if (c.type === 'TEXT') {
+          // Text only fills sideways; its height follows its lines.
+          if (!H && stretchOk) { c.stackChildAlignSelf = 'STRETCH'; fillText.add(key(c.guid)); }
+          if (H && growOk) { c.stackChildPrimaryGrow = 1; fillText.add(key(c.guid)); }
+        } else {
+          if (stretchOk) c.stackChildAlignSelf = 'STRETCH';
+          if (growOk) c.stackChildPrimaryGrow = 1;
         }
         if (!item.change) write(c, item, item.layout);
       });
@@ -1915,12 +1975,56 @@
       if (!children.length) continue;
       const el = elOf.get(key(F.guid));
       const cs = el ? win.getComputedStyle(el) : null;
-      const node = { x: 0, y: 0, w: F.size.x, h: F.size.y, children: children.map(toItem) };
+      const node = { x: 0, y: 0, w: F.size.x, h: F.size.y, children: children.map((c) => toItem(c, el)) };
       const L = inferLayout(node, cs ? layoutInfo(cs, padsOf(cs)) : { P: zeros });
       if (!L) continue;
       write(F, node, L);
       added++;
     }
+    const byGuid = new Map(changes.map((c) => [key(c.guid), c]));
+    const childrenOf = (c) => changes.filter((k) => k.parentIndex && key(k.parentIndex.guid) === key(c.guid));
+    const solidPaint = (str, fallback) => {
+      const m = String(str).match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?/);
+      if (!m) return fallback;
+      return { type: 'SOLID', color: { r: m[1] / 255, g: m[2] / 255, b: m[3] / 255, a: 1 }, opacity: m[4] === undefined ? 1 : +m[4], visible: true, blendMode: 'NORMAL' };
+    };
+
+    // Wrapping rows that only ever hold one line: plain rows, so rounding can't push the last item onto a new line.
+    for (const c of changes) {
+      if (c.stackWrap !== 'WRAP') continue;
+      const kids = childrenOf(c).filter((k) => k.stackPositioning !== 'ABSOLUTE');
+      const tops = new Set(kids.map((k) => Math.round(k.transform.m12)));
+      if (tops.size <= 1) { delete c.stackWrap; delete c.stackCounterSpacing; }
+    }
+
+    // Form fields keep their real size; empty fields show their placeholder colour.
+    for (const c of changes) {
+      const el = elOf.get(key(c.guid));
+      if (!el || !/^(input|textarea|select)$/.test(el.localName) || c.type !== 'FRAME') continue;
+      if (c.stackMode && c.stackMode !== 'NONE') { c.stackPrimarySizing = 'FIXED'; c.stackCounterSizing = 'FIXED'; }
+      for (const t of childrenOf(c)) {
+        if (t.type !== 'TEXT') continue;
+        t.textAutoResize = 'NONE';
+        fillText.add(key(t.guid) + ':keep');
+        if (!el.value && el.placeholder) t.fillPaints = [solidPaint(win.getComputedStyle(el, '::placeholder').color, t.fillPaints && t.fillPaints[0])].filter(Boolean);
+      }
+    }
+
+    // position: fixed belongs to the screen, not the page flow: move it to the top frame at its on-screen spot.
+    const rootFrame = changes.find((c) => c.type === 'FRAME' && c.parentIndex && byGuid.get(key(c.parentIndex.guid)) && byGuid.get(key(c.parentIndex.guid)).type === 'CANVAS');
+    const bodyRect = doc.body.getBoundingClientRect();
+    let topIndex = rootFrame ? childrenOf(rootFrame).length + 100 : 0;
+    for (const c of changes) {
+      const el = elOf.get(key(c.guid));
+      if (!rootFrame || !el || c === rootFrame || win.getComputedStyle(el).position !== 'fixed') continue;
+      const r = el.getBoundingClientRect();
+      c.parentIndex = { guid: rootFrame.guid, position: String(topIndex++) };
+      c.transform = { ...c.transform, m02: r2(r.left - bodyRect.left), m12: r2(r.top - bodyRect.top + win.scrollY) };
+      delete c.stackChildAlignSelf;
+      delete c.stackChildPrimaryGrow;
+      if (rootFrame.stackMode && rootFrame.stackMode !== 'NONE') c.stackPositioning = 'ABSOLUTE';
+    }
+
     // Put rotations back: rotate around the CSS transform-origin, keeping the layer's own size.
     for (const c of changes) {
       const el = elOf.get(key(c.guid));
@@ -1938,10 +2042,29 @@
       if (parent && parent.stackMode && parent.stackMode !== 'NONE') c.stackPositioning = 'ABSOLUTE';
     }
     // Let Figma size text to its own font metrics: single lines grow sideways, paragraphs grow downwards.
+    const byKey = new Map(changes.map((c) => [key(c.guid), c]));
     for (const c of changes) {
-      if (c.type !== 'TEXT' || !c.size) continue;
+      if (c.type !== 'TEXT' || !c.size || fillText.has(key(c.guid) + ':keep')) continue;
+      if (fillText.has(key(c.guid))) { c.textAutoResize = 'HEIGHT'; continue; }
       const lh = c.lineHeight && c.lineHeight.units === 'PIXELS' ? c.lineHeight.value : (c.fontSize || 16) * 1.25;
-      c.textAutoResize = c.size.y < lh * 1.6 ? 'WIDTH_AND_HEIGHT' : 'HEIGHT';
+      const single = c.size.y < lh * 1.6;
+      const parent = c.parentIndex && byKey.get(key(c.parentIndex.guid));
+      const inAuto = parent && parent.stackMode && parent.stackMode !== 'NONE' && c.stackPositioning !== 'ABSOLUTE';
+      // Paragraphs and headings keep their column width; where they span it exactly, they Fill it.
+      if (fillsColumn(ownerOf.get(key(c.guid)) || elOf.get(key(c.guid)), parent && elOf.get(key(parent.guid)))) {
+        c.textAutoResize = 'HEIGHT';
+        if (inAuto && parent.stackMode === 'VERTICAL') {
+          const left = c.transform.m02, right = parent.size.x - left - c.size.x;
+          if (Math.abs(left - (parent.stackHorizontalPadding || 0)) <= TOL && Math.abs(right - (parent.stackPaddingRight || 0)) <= TOL) {
+            c.stackChildAlignSelf = 'STRETCH';
+            parent.stackCounterSizing = 'FIXED';
+          }
+        }
+        continue;
+      }
+      // Auto width only where growing can't shift the text: left-aligned, or placed by auto layout.
+      if (single && ((c.textAlignHorizontal || 'LEFT') === 'LEFT' || inAuto)) c.textAutoResize = 'WIDTH_AND_HEIGHT';
+      else if (!single) c.textAutoResize = 'HEIGHT';
     }
     // Name frames after their elements instead of "Container".
     for (const c of changes) {
