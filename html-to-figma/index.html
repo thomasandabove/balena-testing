@@ -143,6 +143,14 @@
   .copy .spinner { width: 14px; height: 14px; }
 
   .seg-2 { grid-template-columns: repeat(2, 1fr); }
+  .url-row { display: flex; gap: 8px; }
+  .url-row input { flex: 1; min-width: 0; font: 13px var(--font-body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+  .url-row a { text-decoration: none; }
+  .url-row a[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .steps-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .bookmarklet { display: inline-block; padding: 8px 14px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; cursor: grab; }
+  details.notes p { margin: 6px 0; }
   .how p { margin: 0 0 6px; }
   .how ol { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
   .how a { color: var(--accent); }
@@ -176,6 +184,28 @@
           <textarea id="pasteHtml" placeholder="<!doctype html>…"></textarea>
           <button class="btn" id="renderPaste" type="button">Render pasted HTML</button>
         </details>
+      </section>
+
+      <section class="step" aria-labelledby="sw">
+        <h2 id="sw"><b>or</b> From a website</h2>
+        <form class="url-row" id="urlForm">
+          <label class="sr" for="urlInput">Website address</label>
+          <input type="url" id="urlInput" placeholder="https://example.com" autocomplete="url" inputmode="url">
+          <a class="btn" id="openSite" href="#" target="_blank" rel="noopener">Open</a>
+        </form>
+        <ol class="notes steps-list">
+          <li>Open the website and click the <strong>Copy for Figma</strong> bookmark on it.</li>
+          <li>Click <strong>Copy page</strong> in the card that appears.</li>
+          <li>Come back here and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. The page loads above, ready to copy into Figma.</li>
+        </ol>
+        <details class="notes">
+          <summary>Add the Copy for Figma bookmark (once)</summary>
+          <p>Drag this button to your bookmarks bar:</p>
+          <p><a class="bookmarklet" id="bookmarklet" href="#">Copy for Figma</a></p>
+          <p>If dragging doesn't work, copy the code, create a new bookmark named "Copy for Figma" and paste the code as its address.</p>
+          <button class="btn" id="copyBookmarklet" type="button">Copy bookmark code</button>
+        </details>
+        <p class="notes" style="margin:0">Works on pages you're logged in to. Images on other domains that block copying can come through as grey boxes; the tool lists them.</p>
       </section>
 
       <section class="step" aria-labelledby="s2">
@@ -605,6 +635,53 @@
   }
   $('#tabPage').addEventListener('click', () => showTab('page'));
   $('#tabLayers').addEventListener('click', () => showTab('layers'));
+
+  // ----- From a website -----
+  // Generated from bookmarklet/snapshot.js (minified, URL-encoded).
+  const BOOKMARKLET = "javascript:(()%3D%3E%7B(async()%3D%3E%7Bif(window.__h2fSnapshot)return%3Bwindow.__h2fSnapshot%3D!0%3Bconst%20H%3D4*1024*1024%2CN%3D30*1024*1024%2C_%3Da%3D%3Enew%20Promise(A%3D%3EsetTimeout(A%2Ca))%3Blet%20k%3D0%3Bconst%20m%3Dnew%20Set%2Ch%3Ddocument.createElement(%22div%22)%3Bh.id%3D%22__h2f_snapshot_ui%22%2Ch.style.cssText%3D%22all%3Ainitial%3Bposition%3Afixed%3Btop%3A16px%3Bright%3A16px%3Bz-index%3A2147483647%22%3Bconst%20f%3Dh.attachShadow(%7Bmode%3A%22open%22%7D)%3Bf.innerHTML%3D%60%3Cstyle%3E%0A%20%20%20%20.c%7Bfont%3A14px%2F1.45%20system-ui%2C-apple-system%2CSegoe%20UI%2Csans-serif%3Bbackground%3A%23fff%3Bcolor%3A%2315181d%3Bborder%3A1px%20solid%20%23d4d8de%3Bborder-radius%3A12px%3Bbox-shadow%3A0%2012px%2032px%20rgba(0%2C0%2C0%2C.18)%3Bpadding%3A16px%3Bwidth%3A300px%3Bdisplay%3Aflex%3Bflex-direction%3Acolumn%3Bgap%3A10px%7D%0A%20%20%20%20b%7Bfont-size%3A15px%7D.m%7Bcolor%3A%235b6370%3Bfont-size%3A13px%7Dbutton%7Bfont%3A600%2014px%20system-ui%2Csans-serif%3Bborder%3A0%3Bborder-radius%3A8px%3Bpadding%3A10px%2012px%3Bcursor%3Apointer%3Bbackground%3A%232b55e6%3Bcolor%3A%23fff%7D%0A%20%20%20%20button.s%7Bbackground%3A%23eceef1%3Bcolor%3A%2315181d%7D.r%7Bdisplay%3Aflex%3Bgap%3A8px%7D.r%20button%7Bflex%3A1%7D%3C%2Fstyle%3E%0A%20%20%20%20%3Cdiv%20class%3D%22c%22%3E%3Cb%3EHTML%20to%20Figma%3C%2Fb%3E%3Cdiv%20class%3D%22m%22%20id%3D%22m%22%3ECapturing%20this%20page%5Cu2026%3C%2Fdiv%3E%3Cdiv%20class%3D%22r%22%20id%3D%22r%22%20hidden%3E%3C%2Fdiv%3E%3C%2Fdiv%3E%60%2Cdocument.documentElement.appendChild(h)%3Bconst%20p%3Da%3D%3E%7Bf.getElementById(%22m%22).textContent%3Da%7D%2CR%3D()%3D%3E%7Bh.remove()%2Cwindow.__h2fSnapshot%3D!1%7D%3Btry%7Bconst%20a%3DscrollY%3Bfor(let%20e%3D0%2Cn%3D0%3Be%3Cdocument.documentElement.scrollHeight%26%26n%3C80%3Be%2B%3DinnerHeight*.8%2Cn%2B%2B)scrollTo(0%2Ce)%2Cawait%20_(120)%3BscrollTo(0%2Ca)%2Cawait%20_(400)%3Bfor(const%20e%20of%20document.getAnimations%3Fdocument.getAnimations()%3A%5B%5D)try%7Be.finish()%7Dcatch%7Btry%7Be.pause()%7Dcatch%7B%7D%7Dconst%20A%3De%3D%3Enew%20Promise((n%2Ct)%3D%3E%7Bconst%20s%3Dnew%20FileReader%3Bs.onload%3D()%3D%3En(s.result)%2Cs.onerror%3Dt%2Cs.readAsDataURL(e)%7D)%2CE%3Dnew%20Map%2Cv%3De%3D%3E!e%7C%7C%2F%5E(data%7Cblob%7Cabout)%3A%2Fi.test(e)%3FPromise.resolve(e)%3A(E.has(e)%7C%7CE.set(e%2C(async()%3D%3E%7Btry%7Bconst%20n%3Dawait%20fetch(e%2C%7Bmode%3A%22cors%22%2Ccredentials%3Anew%20URL(e).origin%3D%3D%3Dlocation.origin%3F%22include%22%3A%22omit%22%7D)%3Bif(!n.ok)throw%20new%20Error(n.status)%3Bconst%20t%3Dawait%20n.blob()%3Bif(t.size%3EH%7C%7Ck%2Bt.size%3EN)throw%20new%20Error(%22too%20large%22)%3Breturn%20k%2B%3Dt.size%2Cawait%20A(t)%7Dcatch%7Breturn%20m.add(e)%2Ce%7D%7D)())%2CE.get(e))%2Cy%3D(e%2Cn)%3D%3E%7Btry%7Breturn%20new%20URL(e%2Cn).href%7Dcatch%7Breturn%20e%7D%7D%2CL%3Dasync(e%2Cn)%3D%3E%7Bconst%20t%3D%2Furl%5C(%5Cs*(%5B'%22%5D%3F)(%5B%5E'%22)%5D%2B)%5C1%5Cs*%5C)%2Fg%2Cs%3D%5B...new%20Set(%5B...e.matchAll(t)%5D.map(o%3D%3Ey(o%5B2%5D.trim()%2Cn)))%5D%2Cr%3Dnew%20Map(await%20Promise.all(s.map(async%20o%3D%3E%5Bo%2Cawait%20v(o)%5D)))%3Breturn%20e.replace(t%2C(o%2Ci%2Cx)%3D%3E%60url(%22%24%7Br.get(y(x.trim()%2Cn))%7C%7Cy(x.trim()%2Cn)%7D%22)%60)%7D%3Bp(%22Collecting%20styles%5Cu2026%22)%3Bconst%20S%3Dasync%20e%3D%3E%7Bconst%20n%3De.href%7C%7Clocation.href%3Blet%20t%3Btry%7Bconst%20r%3D%5B%5D%3Bfor(const%20o%20of%20e.cssRules)o.type%3D%3D%3DCSSRule.IMPORT_RULE%26%26o.styleSheet%3Fr.push(await%20S(o.styleSheet))%3Ar.push(o.cssText)%3Bt%3Dr.join(%60%0A%60)%7Dcatch%7Btry%7Bt%3Dawait(await%20fetch(e.href%2C%7Bmode%3A%22cors%22%7D)).text()%7Dcatch%7Breturn%20m.add(e.href)%2C%22%22%7D%7Dt%3Dawait%20L(t%2Cn)%3Bconst%20s%3De.media%26%26e.media.mediaText%3Breturn%20s%26%26s!%3D%3D%22all%22%3F%60%40media%20%24%7Bs%7D%7B%0A%24%7Bt%7D%0A%7D%60%3At%7D%3Blet%20C%3D%22%22%3Bfor(const%20e%20of%20document.styleSheets)e.ownerNode%26%26e.ownerNode.closest%26%26e.ownerNode.closest(%22%23__h2f_snapshot_ui%22)%7C%7C(C%2B%3Dawait%20S(e)%2B%60%0A%60)%3Bfor(const%20e%20of%20document.adoptedStyleSheets%7C%7C%5B%5D)C%2B%3Dawait%20S(e)%2B%60%0A%60%3Bp(%22Collecting%20images%5Cu2026%22)%3Bconst%20l%3Ddocument.documentElement.cloneNode(!0)%2C%24%3D%5Bdocument.documentElement%2C...document.documentElement.querySelectorAll(%22*%22)%5D%2CP%3D%5Bl%2C...l.querySelectorAll(%22*%22)%5D%2Cb%3D%5B%5D%3B%24.forEach((e%2Cn)%3D%3E%7Bconst%20t%3DP%5Bn%5D%3Bif(!t)return%3Bconst%20s%3De.localName%3Bif((s%3D%3D%3D%22input%22%7C%7Cs%3D%3D%3D%22textarea%22)%26%26(e.type%3D%3D%3D%22checkbox%22%7C%7Ce.type%3D%3D%3D%22radio%22%3Fe.checked%3Ft.setAttribute(%22checked%22%2C%22%22)%3At.removeAttribute(%22checked%22)%3As%3D%3D%3D%22textarea%22%3Ft.textContent%3De.value%3Ae.type!%3D%3D%22password%22%26%26e.type!%3D%3D%22file%22%26%26t.setAttribute(%22value%22%2Ce.value))%2Cs%3D%3D%3D%22select%22%26%26%5B...e.options%5D.forEach((o%2Ci)%3D%3E%7Bo.selected%26%26t.options%5Bi%5D.setAttribute(%22selected%22%2C%22%22)%7D)%2Cs%3D%3D%3D%22img%22)%7Bconst%20o%3De.currentSrc%7C%7Ce.src%3Bt.removeAttribute(%22srcset%22)%2Ct.removeAttribute(%22sizes%22)%2Ct.removeAttribute(%22loading%22)%2Cb.push(v(o).then(i%3D%3Et.setAttribute(%22src%22%2Ci)))%7Dif(s%3D%3D%3D%22source%22%26%26e.parentElement%26%26e.parentElement.localName%3D%3D%3D%22picture%22%26%26t.remove()%2Cs%3D%3D%3D%22canvas%22)try%7Bconst%20o%3Ddocument.createElement(%22img%22)%3Bo.src%3De.toDataURL(%22image%2Fpng%22)%2Co.setAttribute(%22style%22%2Ct.getAttribute(%22style%22)%7C%7C%22%22)%2Co.className%3De.className%2Co.width%3De.width%2Co.height%3De.height%2Ct.replaceWith(o)%7Dcatch%7B%7Ds%3D%3D%3D%22video%22%26%26e.poster%26%26b.push(v(y(e.poster%2Clocation.href)).then(o%3D%3Et.setAttribute(%22poster%22%2Co)))%3Bconst%20r%3Dt.getAttribute%26%26t.getAttribute(%22style%22)%3Bif(r%26%26%2Furl%5C(%2F.test(r)%26%26b.push(L(r%2Clocation.href).then(o%3D%3Et.setAttribute(%22style%22%2Co)))%2Ce.shadowRoot%26%26e.shadowRoot.mode%3D%3D%3D%22open%22)%7Bconst%20o%3Ddocument.createElement(%22template%22)%3Bo.setAttribute(%22shadowrootmode%22%2C%22open%22)%3Blet%20i%3De.shadowRoot.innerHTML%3Bfor(const%20x%20of%20e.shadowRoot.adoptedStyleSheets%7C%7C%5B%5D)try%7Bi%3D%60%3Cstyle%3E%24%7B%5B...x.cssRules%5D.map(B%3D%3EB.cssText).join(%60%0A%60)%7D%3C%2Fstyle%3E%60%2Bi%7Dcatch%7B%7Do.innerHTML%3Di%2Ct.prepend(o)%7Dfor(const%20o%20of%5B...t.attributes%7C%7C%5B%5D%5D)(%2F%5Eon%2Fi.test(o.name)%7C%7C%2F%5E%5Cs*javascript%3A%2Fi.test(o.value))%26%26t.removeAttribute(o.name)%7D)%2Cawait%20Promise.all(b)%2Cl.querySelectorAll('script%2C%20noscript%2C%20link%5Brel~%3D%22stylesheet%22%5D%2C%20link%5Brel%3D%22preload%22%5D%2C%20link%5Brel%3D%22modulepreload%22%5D%2C%20style%2C%20%23__h2f_snapshot_ui').forEach(e%3D%3Ee.remove())%3Blet%20c%3Dl.querySelector(%22head%22)%3Bc%7C%7C(c%3Ddocument.createElement(%22head%22)%2Cl.prepend(c))%3Bconst%20u%3Ddocument.createElement(%22meta%22)%3Bu.name%3D%22h2f-source%22%2Cu.content%3Dlocation.href%2Cu.setAttribute(%22data-width%22%2CString(innerWidth))%2Cu.setAttribute(%22data-height%22%2CString(innerHeight))%3Bconst%20M%3Ddocument.createElement(%22base%22)%3BM.href%3Dlocation.href%3Bconst%20z%3Ddocument.createElement(%22style%22)%3Bif(z.textContent%3DC.replace(%2F%3C%5C%2Fstyle%2Fgi%2C%22%3C%5C%5C%2Fstyle%22)%2Cc.prepend(z)%2Cc.prepend(M)%2Cc.prepend(u)%2C!c.querySelector(%22meta%5Bcharset%5D%22))%7Bconst%20e%3Ddocument.createElement(%22meta%22)%3Be.setAttribute(%22charset%22%2C%22utf-8%22)%2Cc.prepend(e)%7Dconst%20d%3D%60%3C!DOCTYPE%20html%3E%0A%60%2Bl.outerHTML%2Cq%3Dd.length%3E1048576%3F(d.length%2F1048576).toFixed(1)%2B%22%20MB%22%3AMath.max(1%2CMath.round(d.length%2F1024))%2B%22%20KB%22%3Bp(%60Captured%20%22%24%7Bdocument.title%7C%7Clocation.hostname%7D%22%20(%24%7Bq%7D)%24%7Bm.size%3F%60.%20%24%7Bm.size%7D%20file%24%7Bm.size%3E1%3F%22s%22%3A%22%22%7D%20couldn't%20be%20read%20and%20may%20be%20missing%60%3A%22%22%7D.%20Copy%20it%2C%20then%20press%20%5Cu2318V%20%2F%20Ctrl%20V%20in%20the%20HTML%20to%20Figma%20tool.%60)%3Bconst%20U%3Df.getElementById(%22r%22)%3BU.hidden%3D!1%3Bconst%20T%3Ddocument.createElement(%22button%22)%3BT.textContent%3D%22Copy%20page%22%2CT.onclick%3Dasync()%3D%3E%7Blet%20e%3D!1%3Btry%7Bawait%20navigator.clipboard.writeText(d)%2Ce%3D!0%7Dcatch%7Bconst%20n%3Ddocument.createElement(%22textarea%22)%3Bn.value%3Dd%2Cf.appendChild(n)%2Cn.select()%3Btry%7Be%3Ddocument.execCommand(%22copy%22)%7Dcatch%7B%7Dn.remove()%7Dp(e%3F%22Copied.%20Go%20back%20to%20the%20HTML%20to%20Figma%20tool%20and%20press%20%5Cu2318V%20%2F%20Ctrl%20V.%22%3A%22Your%20browser%20blocked%20the%20clipboard.%20Use%20Download%20instead%20and%20upload%20the%20file%20to%20the%20tool.%22)%7D%3Bconst%20w%3Ddocument.createElement(%22button%22)%3Bw.className%3D%22s%22%2Cw.textContent%3D%22Download%22%2Cw.onclick%3D()%3D%3E%7Bconst%20e%3Ddocument.createElement(%22a%22)%3Be.href%3DURL.createObjectURL(new%20Blob(%5Bd%5D%2C%7Btype%3A%22text%2Fhtml%22%7D))%2Ce.download%3D(location.hostname%2Blocation.pathname).replace(%2F%5B%5E%5Cw.-%5D%2B%2Fg%2C%22-%22).replace(%2F-%2B%24%2F%2C%22%22)%2B%22.html%22%2Ce.click()%7D%3Bconst%20g%3Ddocument.createElement(%22button%22)%3Bg.className%3D%22s%22%2Cg.textContent%3D%22Close%22%2Cg.onclick%3DR%2CU.append(T%2Cw%2Cg)%7Dcatch(a)%7Bp(%22Capture%20failed%3A%20%22%2B(a%26%26a.message%3Fa.message%3Aa))%2CsetTimeout(R%2C6e3)%7D%7D)()%3B%7D)()%3B";
+  $('#bookmarklet').setAttribute('href', BOOKMARKLET);
+  $('#bookmarklet').addEventListener('click', (e) => { e.preventDefault(); setStatus('ok', 'Drag the Copy for Figma button to your bookmarks bar, then click it on the website.'); });
+  $('#copyBookmarklet').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(BOOKMARKLET); setStatus('ok', 'Bookmark code copied. Create a bookmark and paste it as the address.'); }
+    catch { setStatus('err', 'The clipboard is blocked here. Drag the button to your bookmarks bar instead.'); }
+  });
+  const siteUrl = () => {
+    let v = $('#urlInput').value.trim();
+    if (!v) return '';
+    if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+    try { return new URL(v).href; } catch { return ''; }
+  };
+  const syncOpen = () => { const u = siteUrl(); $('#openSite').href = u || '#'; $('#openSite').setAttribute('aria-disabled', String(!u)); };
+  $('#urlInput').addEventListener('input', syncOpen);
+  syncOpen();
+  $('#urlForm').addEventListener('submit', (e) => { e.preventDefault(); if (siteUrl()) $('#openSite').click(); });
+
+  // A page captured with the bookmark (or any HTML) pasted anywhere on the tool loads straight away.
+  function loadPastedHtml(code) {
+    const doc = new DOMParser().parseFromString(code, 'text/html');
+    const source = doc.querySelector('meta[name="h2f-source"]');
+    let name = 'pasted.html';
+    if (source) {
+      try {
+        const u = new URL(source.content);
+        const path = u.pathname.replace(/\/(index)?(\.html?)?$/i, '').replace(/\.html?$/i, '');
+        name = (u.hostname + path).replace(/[^\w.-]+/g, '-') + '.html';
+      } catch {}
+      const w = parseInt(source.getAttribute('data-width'), 10);
+      if (w >= 200 && w <= 4000) { state.width = w; selectWidth('fit'); }
+    }
+    Object.assign(state, { html: code, name, sample: false });
+    if (!state.scriptsTouched) state.scripts = /<script/i.test(code);
+    render();
+  }
+  document.addEventListener('paste', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+    const code = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+    if (!/<html[\s>]|<!doctype html/i.test(code.slice(0, 2000))) return;
+    e.preventDefault();
+    loadPastedHtml(code);
+  });
 
   $('#renderPaste').addEventListener('click', () => {
     const code = $('#pasteHtml').value.trim();
