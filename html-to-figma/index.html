@@ -142,7 +142,7 @@
   @media (prefers-reduced-motion: reduce) { .spinner, .loader-steps li[data-state="active"]::before { animation-duration: 2.5s; } .track div { transition: none; } }
   .copy .spinner { width: 14px; height: 14px; }
 
-  .seg-2 { grid-template-columns: repeat(2, 1fr); }
+  .seg-2 { grid-template-columns: repeat(3, 1fr); }
   .url-row { display: flex; gap: 8px; }
   .url-row input { flex: 1; min-width: 0; font: 13px var(--font-body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
   .url-row a { text-decoration: none; }
@@ -228,7 +228,8 @@
       <section class="step" aria-labelledby="s3">
         <h2 id="s3"><b>3</b> Copy</h2>
         <div class="seg seg-2" role="group" aria-label="Paste method">
-          <button type="button" data-mode="native" aria-pressed="true">Auto layout<small>recommended</small></button>
+          <button type="button" data-mode="sections" aria-pressed="true">Sections<small>recommended</small></button>
+          <button type="button" data-mode="native" aria-pressed="false">Full auto layout<small>every frame</small></button>
           <button type="button" data-mode="svg" aria-pressed="false">Flat layers<small>fixed positions</small></button>
         </div>
         <button class="copy" id="copyBtn" type="button" disabled><span class="spinner" aria-hidden="true"></span>Preparing layers…</button>
@@ -251,7 +252,8 @@
           <p class="notes">Your browser blocked the clipboard. The code below is selected: press <kbd>⌘C</kbd> or <kbd>Ctrl C</kbd>, then paste in Figma.</p>
           <textarea id="fallbackText" readonly></textarea>
         </div>
-        <p class="notes how" id="howNative">In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. The page pastes as frames with auto layout, gaps, padding and Fill/Hug sizing. No plugin needed.</p>
+        <p class="notes how" id="howSections">In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. The page frame has auto layout; each section (header, hero, features, footer…) is a group inside it, with everything placed exactly as on the page. No plugin needed.</p>
+        <p class="notes how" id="howNative" hidden>In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. The page pastes as frames with auto layout, gaps, padding and Fill/Hug sizing. No plugin needed.</p>
         <p class="notes how" id="howSvg" hidden>In Figma, click on the canvas and press <kbd>⌘V</kbd> / <kbd>Ctrl V</kbd>. Layers paste as shapes and text with fixed positions. Use this if an auto layout paste comes out wrong.</p>
         <p class="notes" style="margin:0">Fonts need to be installed on your machine to show correctly.</p>
       </section>
@@ -259,7 +261,8 @@
       <details class="step notes">
         <summary>What carries over</summary>
         <ul>
-          <li>Auto layout: flexbox, grids and stacked content become auto layout frames with gaps, padding, alignment, wrap and Fill/Hug sizing. Uneven spacing becomes nested stacks so every gap stays exact. Frames are named after their HTML elements.</li>
+          <li>Sections (default): the page frame has auto layout and each section of the page is a group inside it, named after the section. Inside, everything sits exactly where it was; plain containers are groups, and boxes with a background or border stay frames.</li>
+          <li>Full auto layout: every container becomes an auto layout frame where its layout can be matched exactly.</li>
           <li>Backgrounds, linear and radial gradients, borders, corner radius and drop shadows.</li>
           <li>Text as live text layers with font, size, weight, colour and letter spacing.</li>
           <li>Images, inline SVG icons, opacity and overflow clipping.</li>
@@ -354,7 +357,7 @@
 </div></body></html>`;
 
   const $ = (s) => document.querySelector(s);
-  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, mode: 'native', native: '', result: null, scripts: false, scriptsTouched: false, svg: '', token: 0 };
+  const state = { html: SAMPLE, name: 'pricing-card.html', sample: true, width: 1440, fit: true, liveWidth: 0, height: 900, mode: 'sections', native: '', result: null, scripts: false, scriptsTouched: false, svg: '', token: 0 };
   let previewUrl = null;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const SCRIPT_END = '<' + '/script>';
@@ -468,9 +471,13 @@
       progress('convert', 0);
       const bounds = state.fit ? contentBounds(frame.contentDocument, frame.contentWindow) : null;
       const result = await htmlToSvg(frame.contentDocument, state.liveWidth || state.width, state.height, (f) => { check(); progress('convert', f * 0.4); }, bounds);
-      result.native = await nativeConvert(frame, result, (f) => { check(); progress('convert', 0.4 + f * 0.6); });
-      check();
-      state.native = result.native.html;
+      result.natives = {};
+      state.frame = frame;
+      if (state.mode !== 'svg') {
+        result.natives[state.mode] = await nativeConvert(frame, result, (f) => { check(); progress('convert', 0.4 + f * 0.6); }, state.mode === 'sections' ? 'sections' : 'full');
+        check();
+        state.native = result.natives[state.mode].html;
+      }
       if (state.fit) $('#dims').textContent = `Fit content · ${result.width} × ${result.height}`;
       check();
       progress('convert', 1);
@@ -498,16 +505,21 @@
   function showStats() {
     const r = state.result;
     if (!r) return;
-    const native = state.mode === 'native';
-    const st = native ? r.native.stats : r.stats;
+    const conv = r.natives && r.natives[state.mode];
+    if (state.mode !== 'svg' && !conv) return;
+    const st = conv ? conv.stats : r.stats;
     $('#stFrame').textContent = `${r.width} × ${r.height}`;
-    $('#stGroupsLabel').textContent = native ? 'Auto layout frames' : 'Groups';
-    $('#stGroups').textContent = native ? `${st.autoLayout} of ${st.frames}` : st.groups;
+    $('#stGroupsLabel').textContent = state.mode === 'sections' ? 'Section groups' : state.mode === 'native' ? 'Auto layout frames' : 'Groups';
+    $('#stGroups').textContent = state.mode === 'sections' ? st.sections : state.mode === 'native' ? `${st.autoLayout} of ${st.frames}` : st.groups;
     $('#stText').textContent = st.text;
     $('#stImages').textContent = st.images;
-    setStatus('ok', native
-      ? `Ready. ${st.frames} frames, ${st.autoLayout} with auto layout.`
-      : `Ready. ${st.groups + st.text + st.images} layers, ${Math.round(state.svg.length / 1024)} KB.`);
+    setStatus('ok', state.mode === 'sections'
+      ? (st.sections
+        ? `Ready. ${st.sections} section${st.sections === 1 ? '' : 's'} as groups in an auto layout page frame.`
+        : 'Ready. Everything on this page is placed freely (like artboards on a canvas), so the page frame keeps it as is, without auto layout.')
+      : state.mode === 'native'
+        ? `Ready. ${st.frames} frames, ${st.autoLayout} with auto layout.`
+        : `Ready. ${st.groups + st.text + st.images} layers, ${Math.round(state.svg.length / 1024)} KB.`);
   }
 
   function showResult(r, frame) {
@@ -530,7 +542,7 @@
     const js = [...failed].filter((u) => !css.includes(u) && !/fonts\.googleapis\.com/.test(u) && !/\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(u));
     if (css.length) warnings.push(['Stylesheets that couldn\'t load, so the page is missing their styling. Download each one and upload it together with your HTML file:', css]);
     if (js.length) warnings.push(['Scripts that couldn\'t load, so parts of the page they build may be missing. Download each one and upload it together with your HTML file:', js]);
-    const missing = [...new Set([...r.missing, ...r.native.missing])];
+    const missing = [...new Set([...r.missing, ...Object.values(r.natives || {}).flatMap((n) => n.missing)])];
     if (missing.length) warnings.push(['Images that couldn\'t be read, now grey placeholders. Upload them together with your HTML file:', missing]);
     if (!state.scripts && /<script\b/i.test(state.html)) warnings.push(['This page has scripts that were not run. Tick "Run the page\'s scripts" if content is missing.', []]);
     const list = $('#warnList');
@@ -555,7 +567,7 @@
 
   $('#copyBtn').addEventListener('click', async () => {
     const done = 'Copied. Click the Figma canvas and press ⌘V / Ctrl V.';
-    if (state.mode === 'native') {
+    if (state.mode !== 'svg') {
       if (!state.native) return;
       if (await copyHtml(state.native)) { setStatus('ok', done); flashCopied(); }
       else setStatus('err', 'The clipboard is blocked here. Switch to "Flat layers" to copy the page as code you can paste instead.');
@@ -593,17 +605,40 @@
     copiedTimer = setTimeout(() => { if (state.svg) setCopyState('idle'); }, 2000);
   }
 
-  function selectMode(mode) {
+  async function selectMode(mode) {
     state.mode = mode;
     document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    $('#howSections').hidden = mode !== 'sections';
     $('#howNative').hidden = mode !== 'native';
     $('#howSvg').hidden = mode !== 'svg';
     $('#fallback').hidden = true;
+    try { localStorage.setItem('h2f-paste-mode', mode); } catch {}
+    const r = state.result;
+    if (mode !== 'svg' && r && state.frame) {
+      // Each paste style is converted the first time it's picked, then kept.
+      if (!r.natives[mode]) {
+        const token = state.token;
+        setCopyState('busy');
+        setStatus('busy', 'Converting…');
+        try {
+          progress('convert', 0);
+          const conv = await nativeConvert(state.frame, r, (f) => progress('convert', f), mode === 'sections' ? 'sections' : 'full');
+          if (token !== state.token) return;
+          r.natives[mode] = conv;
+          $('#loader').hidden = true;
+        } catch (err) {
+          setStatus('err', 'Could not convert this page: ' + err.message);
+          loaderFailed('Could not convert this page: ' + err.message);
+          return;
+        }
+        setCopyState('idle');
+      }
+      if (state.mode === mode) state.native = r.natives[mode].html;
+    }
     showStats();
-    try { localStorage.setItem('h2f-mode', mode); } catch {}
   }
   document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => selectMode(b.dataset.mode)));
-  try { const saved = localStorage.getItem('h2f-mode'); if (saved === 'svg' || saved === 'native') selectMode(saved); } catch {}
+  try { const saved = localStorage.getItem('h2f-paste-mode'); if (saved === 'svg' || saved === 'native' || saved === 'sections') selectMode(saved); } catch {}
 
   function selectWidth(w) {
     state.fit = w === 'fit';
@@ -1927,7 +1962,7 @@
 
   // The converter only adds auto layout where a container has one even gap. This pass adds it to the rest:
   // uneven spacing becomes nested stacks, spanning children Fill, content-sized frames Hug.
-  function addAutoLayout(document, trace, doc, win, rotated = new Map()) {
+  function addAutoLayout(document, trace, doc, win, rotated = new Map(), layoutMode = 'full') {
     const changes = document.nodeChanges;
     const key = (g) => g.sessionID + ':' + g.localID;
     const kids = new Map();
@@ -2047,6 +2082,7 @@
 
     let added = 0;
     for (const F of changes.slice()) {
+      if (layoutMode === 'sections') break;
       if (F.type !== 'FRAME' || !F.parentIndex || (F.stackMode && F.stackMode !== 'NONE')) continue;
       const children = (kids.get(key(F.guid)) || []).slice().sort(order);
       if (!children.length) continue;
@@ -2142,6 +2178,19 @@
       // Auto width only where growing can't shift the text: left-aligned, or placed by auto layout.
       if (single && ((c.textAlignHorizontal || 'LEFT') === 'LEFT' || inAuto)) c.textAutoResize = 'WIDTH_AND_HEIGHT';
       else if (!single) c.textAutoResize = 'HEIGHT';
+      else {
+        // Centred or right-aligned single lines keep a fixed box; give it room so a slightly wider font can't wrap it.
+        const extra = Math.max(8, c.size.x * 0.12);
+        const shift = (c.textAlignHorizontal === 'RIGHT' ? extra : extra / 2);
+        c.size = { ...c.size, x: r2(c.size.x + extra) };
+        c.transform = { ...c.transform, m02: r2(c.transform.m02 - shift * c.transform.m00), m12: r2(c.transform.m12 - shift * c.transform.m10) };
+        c.textAutoResize = 'NONE';
+      }
+    }
+    // The page itself never clips in a browser, even with overflow: hidden on html or body.
+    for (const c of changes) {
+      const el = elOf.get(key(c.guid));
+      if (c.type === 'FRAME' && el && (el === doc.body || el === doc.documentElement)) c.frameMaskDisabled = true;
     }
     // Name frames after their elements instead of "Container".
     for (const c of changes) {
@@ -2149,7 +2198,201 @@
       const el = elOf.get(key(c.guid));
       if (el) c.name = layerName(el);
     }
+    if (layoutMode === 'sections') groupSections();
     return added;
+
+    // ----- Sections mode: auto layout on the page frame, each section a group, everything inside placed freely -----
+    function groupSections() {
+      const R = rootFrame;
+      if (!R) return;
+      const kidsOf = (c) => changes.filter((k) => k.parentIndex && key(k.parentIndex.guid) === key(c.guid)).sort(order);
+      const removed = new Set();
+      const ident = { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 };
+      const newGuid = () => ({ sessionID: 0, localID: nextId++ });
+      const visiblePaints = (ps) => (ps || []).filter((p) => p.visible !== false);
+      const painted = (c) => visiblePaints(c.fillPaints).length || (visiblePaints(c.strokePaints).length && (c.strokeWeight || c.borderTopWeight || c.borderBottomWeight || c.borderLeftWeight || c.borderRightWeight))
+        || (c.effects || []).length || c.cornerRadius || c.rectangleTopLeftCornerRadius;
+      const clips = (c) => c.frameMaskDisabled === false;
+      const isAbs = (c) => {
+        const t = c.transform || ident;
+        if (Math.abs(t.m01) > 1e-3 || Math.abs(t.m10) > 1e-3) return true;
+        const el = elOf.get(key(c.guid));
+        return !!el && /absolute|fixed/.test(win.getComputedStyle(el).position);
+      };
+      // Axis-aligned box of a child in its parent's space (handles rotated layers).
+      const box = (c) => {
+        const t = c.transform || ident, w = c.size ? c.size.x : 0, h = c.size ? c.size.y : 0;
+        const xs = [0, w, 0, w].map((x, i) => t.m00 * x + t.m01 * [0, 0, h, h][i] + t.m02);
+        const ys = [0, w, 0, w].map((x, i) => t.m10 * x + t.m11 * [0, 0, h, h][i] + t.m12);
+        return { x: Math.min(...xs), y: Math.min(...ys), r: Math.max(...xs), b: Math.max(...ys) };
+      };
+      const clearLayout = (c) => {
+        for (const k of Object.keys(c)) if (/^stack/.test(k)) delete c[k];
+      };
+      // Turn a frame into a group: its box becomes the bounds of its children.
+      const makeGroup = (g) => {
+        const ks = kidsOf(g);
+        if (!ks.length) return false;
+        const bs = ks.map(box);
+        const minX = Math.min(...bs.map((b) => b.x)), minY = Math.min(...bs.map((b) => b.y));
+        const maxX = Math.max(...bs.map((b) => b.r)), maxY = Math.max(...bs.map((b) => b.b));
+        for (const k of ks) k.transform = { ...(k.transform || ident), m02: r2((k.transform || ident).m02 - minX), m12: r2((k.transform || ident).m12 - minY) };
+        const t = g.transform || ident;
+        g.transform = { ...t, m02: r2(t.m02 + t.m00 * minX + t.m01 * minY), m12: r2(t.m12 + t.m10 * minX + t.m11 * minY) };
+        g.size = { x: r2(maxX - minX), y: r2(maxY - minY) };
+        clearLayout(g);
+        g.resizeToFit = true;
+        g.frameMaskDisabled = true;
+        g.fillPaints = [];
+        g.strokePaints = [];
+        g.effects = [];
+        return true;
+      };
+      // A frame's own background, border, corners and shadow, moved onto a rectangle inside it.
+      const backgroundOf = (c) => {
+        const bg = {
+          guid: newGuid(), phase: 'CREATED', type: 'ROUNDED_RECTANGLE', name: 'Background', visible: true, opacity: 1,
+          size: { ...c.size }, transform: { ...ident }, fillPaints: c.fillPaints || [], strokePaints: c.strokePaints || [],
+          strokeWeight: c.strokeWeight || 0, strokeAlign: c.strokeAlign || 'INSIDE', strokeJoin: c.strokeJoin || 'MITER', effects: c.effects || [],
+        };
+        for (const k of Object.keys(c)) if (/CornerRadius|cornerRadius|^border.*Weight$|Independent$|cornerSmoothing/.test(k)) { bg[k] = c[k]; delete c[k]; }
+        return bg;
+      };
+      const rect = (name, x, y, w, h) => ({
+        guid: newGuid(), phase: 'CREATED', type: 'RECTANGLE', name, visible: true, opacity: 1,
+        size: { x: r2(w), y: r2(h) }, transform: { ...ident, m02: r2(x), m12: r2(y) }, fillPaints: [], strokePaints: [], strokeWeight: 0, effects: [],
+      });
+
+      // 1. Walk down through single wrappers (body, #root, main…) to the frame whose children are the sections.
+      const chain = [R];
+      let S = R;
+      for (let d = 0; d < 8; d++) {
+        const flowKids = kidsOf(S).filter((k) => !isAbs(k));
+        if (flowKids.length !== 1 || flowKids[0].type !== 'FRAME' || !kidsOf(flowKids[0]).length) break;
+        const k = flowKids[0];
+        if (k.size.x < R.size.x * 0.6 || clips(k)) break;
+        if (painted(k)) {
+          const covers = Math.abs(k.size.x - R.size.x) <= 2 && Math.abs(k.transform.m02) <= 1;
+          if (!covers) break;
+          R.fillPaints = [...(R.fillPaints || []), ...visiblePaints(k.fillPaints)];
+        }
+        chain.push(k);
+        S = k;
+      }
+      // Offsets of each chain frame inside the page frame.
+      const offsets = [{ x: 0, y: 0 }];
+      for (let i = 1; i < chain.length; i++) offsets.push({ x: offsets[i - 1].x + chain[i].transform.m02, y: offsets[i - 1].y + chain[i].transform.m12 });
+      const items = [];
+      chain.forEach((n, i) => {
+        for (const k of kidsOf(n)) {
+          if (chain[i + 1] === k) continue;
+          items.push({ c: k, x: k.transform.m02 + offsets[i].x, y: k.transform.m12 + offsets[i].y, w: k.size.x, h: k.size.y, abs: i < chain.length - 1 || isAbs(k) });
+        }
+      });
+      chain.slice(1).forEach((n) => removed.add(key(n.guid)));
+
+      // 2. Direction of the page frame: stacked sections, side-by-side sections, or neither (a canvas).
+      const flow = items.filter((s) => !s.abs);
+      const W = R.size.x, H = R.size.y;
+      if (!flow.length) {
+        // Everything is placed absolutely (a canvas of artboards): keep the page frame freeform and the artboards as frames.
+        clearLayout(R);
+        items.forEach((s, i) => {
+          s.c.parentIndex = { guid: R.guid, position: String(i) };
+          s.c.transform = { ...s.c.transform, m02: r2(s.x), m12: r2(s.y) };
+          delete s.c.stackPositioning;
+          if (s.c.type === 'FRAME') tidy(s.c);
+        });
+        finish();
+        return;
+      }
+      const byY = flow.slice().sort((a, b) => a.y - b.y), byX = flow.slice().sort((a, b) => a.x - b.x);
+      const apart = (arr, s, z) => arr.every((it, i) => !i || it[s] >= arr[i - 1][s] + arr[i - 1][z] - 2);
+      const dir = flow.length <= 1 || apart(byY, 'y', 'h') ? 'VERTICAL' : apart(byX, 'x', 'w') ? 'HORIZONTAL' : null;
+      const ordered = dir === 'HORIZONTAL' ? byX : byY;
+
+      // 3. Each section becomes a group sized to its band of the page, so spacing between sections stays exact.
+      const groups = ordered.map((s, i) => {
+        let g = s.c;
+        if (g.type === 'FRAME' && !clips(g)) {
+          if (painted(g)) {
+            const bg = backgroundOf(g);
+            bg.parentIndex = { guid: g.guid, position: '!' };
+            changes.push(bg);
+            kidsOf(g).forEach((k, n) => { if (k !== bg) k.parentIndex = { guid: g.guid, position: String(n + 1) }; });
+            bg.parentIndex.position = '0';
+            g.fillPaints = []; g.strokePaints = []; g.effects = [];
+          }
+        } else {
+          // Text, images, vectors or clipping frames sit inside a new group.
+          const wrap = { guid: newGuid(), phase: 'CREATED', type: 'FRAME', name: s.c.name || 'Section', visible: true, opacity: 1, size: { x: s.w, y: s.h }, transform: { ...ident }, fillPaints: [], strokePaints: [], effects: [], frameMaskDisabled: true };
+          changes.push(wrap);
+          s.c.parentIndex = { guid: wrap.guid, position: '0' };
+          s.c.transform = { ...s.c.transform, m02: 0, m12: 0 };
+          g = wrap;
+        }
+        // Section frame placed in page coordinates for now.
+        g.transform = { ...(g.transform || ident), m02: s.x, m12: s.y };
+        if (dir) {
+          const start = i === 0 ? 0 : dir === 'VERTICAL' ? s.y : s.x;
+          const next = i < ordered.length - 1 ? (dir === 'VERTICAL' ? ordered[i + 1].y : ordered[i + 1].x) : Math.max(dir === 'VERTICAL' ? H : W, dir === 'VERTICAL' ? s.y + s.h : s.x + s.w);
+          const band = dir === 'VERTICAL' ? rect('Section bounds', 0 - s.x, start - s.y, W, next - start) : rect('Section bounds', start - s.x, 0 - s.y, next - start, H);
+          band.parentIndex = { guid: g.guid, position: '0' };
+          kidsOf(g).forEach((k, n) => { k.parentIndex = { guid: g.guid, position: String(n + 1) }; });
+          changes.push(band);
+        }
+        return g;
+      });
+
+      // 4. Inside sections, plain containers become groups too; boxes with a background, border or clipping stay frames.
+      function tidy(n) {
+        for (const k of kidsOf(n)) {
+          delete k.stackPositioning; delete k.stackChildAlignSelf; delete k.stackChildPrimaryGrow;
+          if (k.type !== 'FRAME') continue;
+          tidy(k);
+          clearLayout(k);
+          if (!kidsOf(k).length) { if (!painted(k)) removed.add(key(k.guid)); continue; }
+          if (!painted(k) && !clips(k)) makeGroup(k);
+        }
+      }
+      groups.forEach((g, i) => { tidy(g); makeGroup(g); g.name = sectionName(ordered[i].c, g.name); });
+
+      // 5. The page frame: auto layout over the section groups; absolute and fixed layers float on top.
+      clearLayout(R);
+      if (dir) {
+        Object.assign(R, {
+          stackMode: dir, stackSpacing: 0, stackHorizontalPadding: 0, stackVerticalPadding: 0, stackPaddingRight: 0, stackPaddingBottom: 0,
+          stackPrimaryAlignItems: 'MIN', stackCounterAlignItems: 'MIN', stackPrimarySizing: 'RESIZE_TO_FIT', stackCounterSizing: 'FIXED',
+        });
+      }
+      groups.forEach((g, i) => { g.parentIndex = { guid: R.guid, position: String(i) }; });
+      items.filter((s) => s.abs).forEach((s, i) => {
+        s.c.parentIndex = { guid: R.guid, position: String(groups.length + i) };
+        s.c.transform = { ...s.c.transform, m02: r2(s.x), m12: r2(s.y) };
+        if (dir) s.c.stackPositioning = 'ABSOLUTE';
+        if (s.c.type === 'FRAME') tidy(s.c);
+      });
+
+      finish();
+
+      function finish() {
+        if (!removed.size) return;
+        const keep = changes.filter((c) => !removed.has(key(c.guid)) && !(c.parentIndex && removed.has(key(c.parentIndex.guid))));
+        changes.length = 0;
+        changes.push(...keep);
+      }
+      // "Section" and "Container" say nothing; use the element's id or first class instead ("features" → "Features").
+      function sectionName(c, fallback) {
+        const el = elOf.get(key(c.guid));
+        const generic = /^(Section|Container|Frame|body|div|main)$/i.test(fallback) || /^[a-z][a-z0-9]*\.[\w-]+$/.test(fallback);
+        if (!generic || !el) return fallback.length > 40 ? fallback.slice(0, 38).trim() + '…' : fallback;
+        const raw = el.id || (typeof el.className === 'string' && el.className.trim().split(/\s+/).find((n) => n.length > 2 && !/^(reveal|in|active|container|wrapper|section|row|col|flex|grid|relative|mx-auto|w-full|px-\d+|py-\d+|p-\d+)$/.test(n))) || '';
+        if (!raw && /\./.test(fallback)) return fallback.split('.')[1].replace(/[-_]+/g, ' ').replace(/^./, (m) => m.toUpperCase());
+        if (!raw) return fallback === 'Container' ? 'Section' : fallback;
+        const words = raw.replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+      }
+    }
   }
 
   // ---------- Auto layout: Figma's own clipboard format, via @figit/dom-to-figma ----------
@@ -2284,12 +2527,14 @@
     return c.toDataURL('image/png');
   }
 
-  async function nativeConvert(frame, svgResult, report) {
+  async function nativeConvert(frame, svgResult, report, layoutMode) {
     const doc = frame.contentDocument, win = frame.contentWindow;
     report(0.05);
     if (!window.__h2fInter) await loadScript(document, INTER_URL);
     if (!win.__h2fFigit) await loadScript(doc, FIGIT_URL);
-    const prep = prepareForNative(doc, win);
+    // The page is prepared once; switching modes converts the same prepared page again.
+    if (!frame.__h2fPrep) frame.__h2fPrep = prepareForNative(doc, win);
+    const prep = frame.__h2fPrep;
     await frames(win);
     report(0.15);
 
@@ -2337,14 +2582,17 @@
     const timer = setInterval(() => { tick = Math.min(0.95, tick + (0.95 - tick) * 0.08); report(tick); }, 200);
     try {
       const figit = win.__h2fFigit;
-      const converter = figit.createFigmaConverter({ fontLoader, imageLoader, trace: true });
+      const converter = figit.createFigmaConverter({ fontLoader, imageLoader, trace: true, layout: layoutMode === 'sections' ? 'absolute' : 'auto' });
       const result = await converter.convert({ element: doc.body, width: svgResult.width, height: svgResult.height, name: state.name.replace(/\.html?$/i, '') });
-      addAutoLayout(result.document, result.trace, doc, win, prep.rotated);
+      addAutoLayout(result.document, result.trace, doc, win, prep.rotated, layoutMode);
       const html = figit.composeClipboardHtml(figit.encodeFigmaData(result.document).base64);
       const changes = result.document.nodeChanges;
-      const stats = { frames: 0, autoLayout: 0, text: 0, images: 0 };
+      const stats = { frames: 0, autoLayout: 0, groups: 0, sections: 0, text: 0, images: 0 };
+      const keyOf = (g) => g.sessionID + ':' + g.localID;
+      const root = changes.find((c) => c.type === 'FRAME' && c.parentIndex && (changes.find((p) => keyOf(p.guid) === keyOf(c.parentIndex.guid)) || {}).type === 'CANVAS');
       for (const c of changes) {
-        if (c.type === 'FRAME') { stats.frames++; if (c.stackMode && c.stackMode !== 'NONE') stats.autoLayout++; }
+        if (c.type === 'FRAME' && c.resizeToFit) { stats.groups++; if (root && c.parentIndex && keyOf(c.parentIndex.guid) === keyOf(root.guid)) stats.sections++; }
+        else if (c.type === 'FRAME') { stats.frames++; if (c.stackMode && c.stackMode !== 'NONE') stats.autoLayout++; }
         if (c.type === 'TEXT') stats.text++;
         if ((c.fillPaints || []).some((f) => f.type === 'IMAGE')) stats.images++;
       }
