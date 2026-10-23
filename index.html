@@ -221,30 +221,30 @@
   const DEFAULTS = {
     background: "#042632",
     colors: ["#C8DAFF", "#FFAE8B", "#FFCBE3"],
-    count: 600,
-    radius: 0.43,        // outer ring radius, as a share of the shorter screen side
+    count: 1510,
+    radius: 0.47,        // outer ring radius, as a share of the shorter screen side
     thickness: 0.34,     // band width, as a share of the radius
-    scatter: 0.07,       // share of pieces scattered inside the ring
-    pieceSize: 0.008,    // piece width, as a share of the radius (doubled when drawn)
+    scatter: 0.12,       // share of pieces scattered inside the ring
+    pieceSize: 0.004,    // piece width, as a share of the radius (doubled when drawn)
     squares: 0.62,
-    rotation: 6.3,       // degrees per second
-    drift: 0.84,
-    breathe: 0,
+    rotation: 2.4,       // degrees per second
+    drift: 1,
+    breathe: 0.009,
     twinkle: 0,
     mode: "repel",
-    reach: 0.08,         // pointer reach, as a share of the shorter screen side
+    reach: 0.06,         // pointer reach, as a share of the shorter screen side
     strength: 0.9,
     grow: 2,
     spring: 0.01,
     seed: 20260423,
     fit: "short",        // what the ring size is measured against: short side, page width or page height
-    offsetX: 0,          // ring centre offset, as a share of screen width
-    offsetY: 0,          // ring centre offset, as a share of screen height
-    zoom: 1,
-    viewX: 0,            // zoom pan, as a share of screen width
-    viewY: 0             // zoom pan, as a share of screen height
+    offsetX: 0.008968076911263183,  // ring centre offset, as a share of screen width
+    offsetY: 0.33192638633546967,   // ring centre offset, as a share of screen height
+    zoom: 1.6980830547953998,
+    viewX: -0.3609857717525767,     // zoom pan, as a share of screen width
+    viewY: -0.28325734118868234     // zoom pan, as a share of screen height
   };
-  const STORE_KEY = "confetti-ring-settings-v2";
+  const STORE_KEY = "confetti-ring-settings-v3";
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let S = load();
