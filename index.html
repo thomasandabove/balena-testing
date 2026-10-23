@@ -49,6 +49,8 @@
   .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--panel-edge); }
   .panel-head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
   .panel-head p { margin: 2px 0 0; font-size: 11px; color: var(--ink-soft); }
+  .panel.is-min { bottom: auto; }
+  .panel.is-min .panel-head { border-bottom: 0; }
   .panel-body { overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
 
   section { display: flex; flex-direction: column; gap: 10px; padding-block: 14px; border-bottom: 1px solid var(--panel-edge); }
@@ -101,6 +103,7 @@
   @media (max-width: 640px) {
     .panel { top: auto; left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); width: auto; height: 46vh; }
     .panel.is-hidden { transform: translateY(calc(100% + 32px)); }
+    .panel.is-min { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); height: auto; }
   }
 </style>
 </head>
@@ -115,12 +118,13 @@
       <p>Move the pointer over the ring</p>
     </div>
     <div class="btn-row">
+      <button class="icon-btn" id="minimise" title="Minimise settings" aria-label="Minimise settings" aria-expanded="true" aria-controls="panel-body">−</button>
       <button class="icon-btn" id="fullscreen" title="Fullscreen" aria-label="Fullscreen">⤢</button>
       <button class="icon-btn" id="hide" title="Hide panel (H)" aria-label="Hide panel">×</button>
     </div>
   </div>
 
-  <div class="panel-body">
+  <div class="panel-body" id="panel-body">
     <section>
       <h2>Colours</h2>
       <div class="swatch">
@@ -422,6 +426,18 @@
   const panel = $("panel"), reveal = $("reveal");
   function setPanel(open) { panel.classList.toggle("is-hidden", !open); reveal.hidden = open; }
   $("hide").addEventListener("click", () => setPanel(false));
+  const minBtn = $("minimise"), MIN_KEY = "confetti-ring-minimised";
+  function setMinimised(min) {
+    panel.classList.toggle("is-min", min);
+    $("panel-body").hidden = min;
+    minBtn.textContent = min ? "+" : "−";
+    minBtn.setAttribute("aria-expanded", String(!min));
+    const label = min ? "Expand settings" : "Minimise settings";
+    minBtn.title = label; minBtn.setAttribute("aria-label", label);
+    try { localStorage.setItem(MIN_KEY, min ? "1" : "0"); } catch (e) {}
+  }
+  minBtn.addEventListener("click", () => setMinimised(!panel.classList.contains("is-min")));
+  try { if (localStorage.getItem(MIN_KEY) === "1") setMinimised(true); } catch (e) {}
   reveal.addEventListener("click", () => setPanel(true));
   window.addEventListener("keydown", e => {
     if (e.target.matches("input[type=text], textarea")) return;
