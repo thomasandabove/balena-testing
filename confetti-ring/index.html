@@ -181,24 +181,24 @@
   const DEFAULTS = {
     background: "#042632",
     colors: ["#C8DAFF", "#FFAE8B", "#FFCBE3"],
-    count: 260,
-    radius: 0.27,        // outer ring radius, as a share of the shorter screen side
-    thickness: 0.36,     // band width, as a share of the radius
-    scatter: 0.12,       // share of pieces scattered inside the ring
-    pieceSize: 0.021,    // piece width, as a share of the radius (doubled when drawn)
-    squares: 0.5,
-    rotation: 1.5,       // degrees per second
-    drift: 0.35,
-    breathe: 0.012,
-    twinkle: 0.15,
+    count: 600,
+    radius: 0.43,        // outer ring radius, as a share of the shorter screen side
+    thickness: 0.34,     // band width, as a share of the radius
+    scatter: 0.07,       // share of pieces scattered inside the ring
+    pieceSize: 0.008,    // piece width, as a share of the radius (doubled when drawn)
+    squares: 0.62,
+    rotation: 6.3,       // degrees per second
+    drift: 0.84,
+    breathe: 0,
+    twinkle: 0,
     mode: "repel",
-    reach: 0.22,         // pointer reach, as a share of the shorter screen side
+    reach: 0.08,         // pointer reach, as a share of the shorter screen side
     strength: 0.9,
-    grow: 0.6,
-    spring: 0.06,
+    grow: 2,
+    spring: 0.01,
     seed: 20260423
   };
-  const STORE_KEY = "confetti-ring-settings";
+  const STORE_KEY = "confetti-ring-settings-v2";
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let S = load();
