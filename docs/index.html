@@ -1,5 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Confetti Ring</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -17,7 +21,9 @@
     color-scheme: dark;
   }
   html, body { height: 100%; }
+  [hidden] { display: none !important; }
   body {
+    margin: 0;
     background: var(--stage);
     color: var(--ink);
     font-family: var(--font-ui);
@@ -97,6 +103,8 @@
     .panel.is-hidden { transform: translateY(calc(100% + 32px)); }
   }
 </style>
+</head>
+<body>
 
 <canvas id="stage" aria-label="Animated ring of pastel dots and squares that reacts to the pointer"></canvas>
 
@@ -343,6 +351,7 @@
   const rebuilders = new Set(["count", "thickness", "scatter"]);
   const fmt = {
     count: v => v,
+    pieceSize: v => (+v).toFixed(3),
     rotation: v => `${(+v).toFixed(1)}°/s`,
     squares: v => `${Math.round(v * 100)}%`,
     scatter: v => `${Math.round(v * 100)}%`,
@@ -496,3 +505,5 @@
   requestAnimationFrame(t => { last = t; frame(t); });
 })();
 </script>
+</body>
+</html>
