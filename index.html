@@ -149,11 +149,22 @@
       <div class="row"><label for="scatter">Scatter inside</label><output data-for="scatter"></output><input type="range" id="scatter" min="0" max="0.4" step="0.01"></div>
       <div class="row"><label for="pieceSize">Piece size</label><output data-for="pieceSize"></output><input type="range" id="pieceSize" min="0.004" max="0.15" step="0.001"></div>
       <div class="row"><label for="squares">Squares vs dots</label><output data-for="squares"></output><input type="range" id="squares" min="0" max="1" step="0.01"></div>
-      <div class="btn-row">
-        <button id="shuffle">Shuffle layout</button>
-        <button id="centre">Centre ring</button>
+      <button id="shuffle">Shuffle layout</button>
+    </section>
+
+    <section>
+      <h2>Position</h2>
+      <div class="row"><span>Measure size against the page</span></div>
+      <div class="seg" role="group" aria-label="Measure size against">
+        <button data-fit="short">Short side</button>
+        <button data-fit="width">Width</button>
+        <button data-fit="height">Height</button>
       </div>
-      <p class="hint">To move the ring, hold <kbd>Option</kbd> or <kbd>Cmd</kbd> (<kbd>Alt</kbd> or <kbd>Ctrl</kbd> on Windows) and drag it.</p>
+      <p class="hint">With Width, a ring size of 0.50 spans the full width of the page.</p>
+      <div class="row"><label for="offsetX">Left / right</label><output data-for="offsetX"></output><input type="range" id="offsetX" min="-1" max="1" step="0.005"></div>
+      <div class="row"><label for="offsetY">Up / down</label><output data-for="offsetY"></output><input type="range" id="offsetY" min="-1" max="1" step="0.005"></div>
+      <button id="centre">Centre ring</button>
+      <p class="hint">Positions are a share of the page, so +50% up / down puts the centre on the bottom edge. You can also hold <kbd>Option</kbd> or <kbd>Cmd</kbd> (<kbd>Alt</kbd> or <kbd>Ctrl</kbd> on Windows) and drag the ring.</p>
     </section>
 
     <section>
@@ -226,6 +237,7 @@
     grow: 2,
     spring: 0.01,
     seed: 20260423,
+    fit: "short",        // what the ring size is measured against: short side, page width or page height
     offsetX: 0,          // ring centre offset, as a share of screen width
     offsetY: 0,          // ring centre offset, as a share of screen height
     zoom: 1,
@@ -325,6 +337,7 @@
     if (drag) {
       S.offsetX = clampOffset(drag.ox + (e.clientX - drag.x) / (W * S.zoom));
       S.offsetY = clampOffset(drag.oy + (e.clientY - drag.y) / (H * S.zoom));
+      syncPos();
       return;
     }
     if (pinch) return;
@@ -349,7 +362,7 @@
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
   canvas.addEventListener("contextmenu", e => { if (drag || e.ctrlKey) e.preventDefault(); });
-  const clampOffset = v => Math.max(-2, Math.min(2, v));
+  const clampOffset = v => Math.max(-1, Math.min(1, v));
 
   // ---------- Zoom ----------
   // Screen position = world position * zoom + view offset, so zooming keeps the spot under the pointer still.
@@ -410,8 +423,9 @@
     pointer.ease += ((pointer.active ? 1 : 0) - pointer.ease) * 0.08;
 
     const short = Math.min(W, H);
+    const base = S.fit === "width" ? W : S.fit === "height" ? H : short;
     const cx = W * (0.5 + S.offsetX), cy = H * (0.5 + S.offsetY);
-    const R = short * S.radius * (1 + Math.sin(t * 0.6) * S.breathe * motion);
+    const R = base * S.radius * (1 + Math.sin(t * 0.6) * S.breathe * motion);
     const size = R * S.pieceSize * 2;
     const reach = short * S.reach;
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
@@ -470,10 +484,12 @@
 
   // ---------- Controls ----------
   const $ = id => document.getElementById(id);
-  const sliders = ["count", "radius", "thickness", "scatter", "pieceSize", "squares", "rotation", "drift", "breathe", "twinkle", "reach", "strength", "grow", "spring"];
+  const sliders = ["count", "radius", "offsetX", "offsetY", "thickness", "scatter", "pieceSize", "squares", "rotation", "drift", "breathe", "twinkle", "reach", "strength", "grow", "spring"];
   const rebuilders = new Set(["count", "thickness", "scatter"]);
   const fmt = {
     count: v => v,
+    offsetX: v => `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`,
+    offsetY: v => `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`,
     pieceSize: v => (+v).toFixed(3),
     rotation: v => `${(+v).toFixed(1)}°/s`,
     squares: v => `${Math.round(v * 100)}%`,
@@ -497,6 +513,13 @@
   }));
   function syncMode() {
     document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
+    document.querySelectorAll("[data-fit]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.fit === S.fit)));
+  }
+  document.querySelectorAll("[data-fit]").forEach(b => b.addEventListener("click", () => {
+    S.fit = b.dataset.fit; syncMode(); changed();
+  }));
+  function syncPos() {
+    ["offsetX", "offsetY"].forEach(k => { $(k).value = S[k]; show(k, S[k]); });
   }
 
   const HEX = /^#?[0-9a-f]{6}$/i;
@@ -541,7 +564,7 @@
     else if (e.key === "-" || e.key === "_") zoomAt(0.8);
     else if (e.key === "0") resetZoom();
   });
-  $("centre").addEventListener("click", () => { S.offsetX = 0; S.offsetY = 0; changed(); });
+  $("centre").addEventListener("click", () => { S.offsetX = 0; S.offsetY = 0; syncPos(); changed(); });
   $("shuffle").addEventListener("click", () => { S.seed = Math.floor(Math.random() * 1e9); build(); changed(); });
 
   function hslHex(h, s, l) {
@@ -605,7 +628,9 @@
       } else if (k === "background") {
         if (typeof o.background === "string" && HEX.test(o.background)) out.background = norm(o.background);
       } else if (k === "offsetX" || k === "offsetY") {
-        if (typeof o[k] === "number" && isFinite(o[k])) out[k] = Math.max(-2, Math.min(2, o[k]));
+        if (typeof o[k] === "number" && isFinite(o[k])) out[k] = Math.max(-1, Math.min(1, o[k]));
+      } else if (k === "fit") {
+        if (["short", "width", "height"].includes(o.fit)) out.fit = o.fit;
       } else if (k === "zoom") {
         if (typeof o[k] === "number" && isFinite(o[k])) out[k] = Math.max(0.25, Math.min(6, o[k]));
       } else if (k === "viewX" || k === "viewY") {
