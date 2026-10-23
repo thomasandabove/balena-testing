@@ -143,11 +143,11 @@
 
     <section>
       <h2>Ring</h2>
-      <div class="row"><label for="count">Pieces</label><output data-for="count"></output><input type="range" id="count" min="40" max="600" step="1"></div>
-      <div class="row"><label for="radius">Size</label><output data-for="radius"></output><input type="range" id="radius" min="0.15" max="0.48" step="0.005"></div>
+      <div class="row"><label for="count">Pieces</label><output data-for="count"></output><input type="range" id="count" min="40" max="3000" step="10"></div>
+      <div class="row"><label for="radius">Size</label><output data-for="radius"></output><input type="range" id="radius" min="0.15" max="1" step="0.005"></div>
       <div class="row"><label for="thickness">Band width</label><output data-for="thickness"></output><input type="range" id="thickness" min="0.1" max="0.7" step="0.01"></div>
       <div class="row"><label for="scatter">Scatter inside</label><output data-for="scatter"></output><input type="range" id="scatter" min="0" max="0.4" step="0.01"></div>
-      <div class="row"><label for="pieceSize">Piece size</label><output data-for="pieceSize"></output><input type="range" id="pieceSize" min="0.008" max="0.05" step="0.001"></div>
+      <div class="row"><label for="pieceSize">Piece size</label><output data-for="pieceSize"></output><input type="range" id="pieceSize" min="0.004" max="0.15" step="0.001"></div>
       <div class="row"><label for="squares">Squares vs dots</label><output data-for="squares"></output><input type="range" id="squares" min="0" max="1" step="0.01"></div>
       <div class="btn-row">
         <button id="shuffle">Shuffle layout</button>
@@ -254,7 +254,17 @@
     const inner = 1 - S.thickness;
     // Keep pieces from landing on top of each other: roughly 0.7 of an even spacing across the band.
     const minGap = 0.7 * Math.sqrt(Math.PI * (1 - inner * inner) / S.count);
-    const placed = [];
+    // Spatial grid so spacing checks stay fast with thousands of pieces.
+    const grid = new Map();
+    const cellOf = (x, y) => `${Math.floor(x / minGap)},${Math.floor(y / minGap)}`;
+    const crowded = (x, y) => {
+      const gx = Math.floor(x / minGap), gy = Math.floor(y / minGap);
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        const cell = grid.get(`${gx + i},${gy + j}`);
+        if (cell && cell.some(p => (p.x - x) ** 2 + (p.y - y) ** 2 < minGap * minGap)) return true;
+      }
+      return false;
+    };
     const old = pieces;
     pieces = [];
     for (let i = 0; i < S.count; i++) {
@@ -268,8 +278,10 @@
           : Math.sqrt(inner * inner + rand() * (1 - inner * inner));
         x = Math.cos(a) * r; y = Math.sin(a) * r;
         tries++;
-      } while (tries < 60 && placed.some(p => (p.x - x) ** 2 + (p.y - y) ** 2 < minGap * minGap));
-      placed.push({ x, y });
+      } while (tries < 60 && crowded(x, y));
+      const key = cellOf(x, y);
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push({ x, y });
       const prev = old[i];
       pieces.push({
         hx: x, hy: y,
