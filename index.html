@@ -578,7 +578,7 @@
   const panel = $("panel"), reveal = $("reveal");
   function setPanel(open) { panel.classList.toggle("is-hidden", !open); reveal.hidden = open; }
   $("hide").addEventListener("click", () => setPanel(false));
-  const minBtn = $("minimise"), MIN_KEY = "confetti-ring-minimised";
+  const minBtn = $("minimise"), MIN_KEY = "confetti-ring-minimised-v2";
   function setMinimised(min) {
     panel.classList.toggle("is-min", min);
     $("panel-body").hidden = min;
@@ -589,7 +589,10 @@
     try { localStorage.setItem(MIN_KEY, min ? "1" : "0"); } catch (e) {}
   }
   minBtn.addEventListener("click", () => setMinimised(!panel.classList.contains("is-min")));
-  try { if (localStorage.getItem(MIN_KEY) === "1") setMinimised(true); } catch (e) {}
+  // Starts minimised unless this viewer has opened the settings before.
+  let startOpen = false;
+  try { startOpen = localStorage.getItem(MIN_KEY) === "0"; } catch (e) {}
+  setMinimised(!startOpen);
   reveal.addEventListener("click", () => setPanel(true));
   window.addEventListener("keydown", e => {
     if (e.target.matches("input[type=text], textarea")) return;
