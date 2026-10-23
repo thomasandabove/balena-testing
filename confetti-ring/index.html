@@ -1,0 +1,498 @@
+<title>Confetti Ring</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed canvas stage, with a floating editor panel docked right (bottom sheet on phones). */
+  :root {
+    --stage: #042632;
+    --panel: rgba(6, 30, 40, 0.86);
+    --panel-edge: rgba(200, 218, 255, 0.14);
+    --ink: #e8eef8;
+    --ink-soft: #94a9b8;
+    --accent: #c8daff;
+    --field: rgba(200, 218, 255, 0.07);
+    --font-ui: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--stage);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    overflow: hidden;
+  }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+
+  .panel {
+    position: fixed;
+    top: calc(16px + env(safe-area-inset-top, 0px));
+    right: calc(16px + env(safe-area-inset-right, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: 300px;
+    display: flex; flex-direction: column;
+    background: var(--panel);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--panel-edge);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform .35s ease, opacity .35s ease;
+  }
+  .panel.is-hidden { transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--panel-edge); }
+  .panel-head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+  .panel-head p { margin: 2px 0 0; font-size: 11px; color: var(--ink-soft); }
+  .panel-body { overflow-y: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 4px; }
+
+  section { display: flex; flex-direction: column; gap: 10px; padding-block: 14px; border-bottom: 1px solid var(--panel-edge); }
+  section:last-child { border-bottom: 0; }
+  h2 { margin: 0; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-soft); }
+
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 10px; font-size: 12.5px; }
+  .row label { color: var(--ink); }
+  .row output { font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+
+  .swatches { display: flex; flex-direction: column; gap: 6px; }
+  .swatch { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; }
+  .swatch input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--panel-edge); border-radius: 8px; background: none; cursor: pointer; }
+  .swatch input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+  .swatch input[type=color]::-webkit-color-swatch { border: 0; border-radius: 7px; }
+  .swatch input[type=color]::-moz-color-swatch { border: 0; border-radius: 7px; }
+  .swatch input[type=text] { min-width: 0; font-family: var(--font-data); font-size: 12px; text-transform: uppercase; color: var(--ink); background: var(--field); border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; }
+  .swatch input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .swatch input[type=text].bad { border-color: #ff8b8b; }
+
+  button, select {
+    font: inherit; font-size: 12px; color: var(--ink);
+    background: var(--field); border: 1px solid var(--panel-edge); border-radius: 8px;
+    padding: 7px 10px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: rgba(200, 218, 255, .35); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .icon-btn { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; font-size: 15px; line-height: 1; }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn-row button { flex: 1 1 auto; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .seg button[aria-pressed=true] { background: var(--accent); color: #042632; border-color: var(--accent); font-weight: 600; }
+
+  textarea { width: 100%; min-height: 96px; resize: vertical; box-sizing: border-box; font-family: var(--font-data); font-size: 10.5px; line-height: 1.5; color: var(--ink); background: var(--field); border: 1px solid var(--panel-edge); border-radius: 8px; padding: 8px; }
+  .hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--ink-soft); }
+  .hint kbd { font-family: var(--font-data); font-size: 10px; padding: 1px 5px; border: 1px solid var(--panel-edge); border-radius: 4px; }
+  .status { min-height: 1em; font-size: 11px; color: var(--accent); }
+
+  .reveal {
+    position: fixed;
+    right: calc(16px + env(safe-area-inset-right, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 12px; border-radius: 999px;
+    background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    opacity: .55; transition: opacity .2s;
+  }
+  .reveal:hover, .reveal:focus-visible { opacity: 1; }
+
+  @media (max-width: 640px) {
+    .panel { top: auto; left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); width: auto; height: 46vh; }
+    .panel.is-hidden { transform: translateY(calc(100% + 32px)); }
+  }
+</style>
+
+<canvas id="stage" aria-label="Animated ring of pastel dots and squares that reacts to the pointer"></canvas>
+
+<aside class="panel" id="panel" aria-label="Animation settings">
+  <div class="panel-head">
+    <div>
+      <h1>Confetti Ring</h1>
+      <p>Move the pointer over the ring</p>
+    </div>
+    <div class="btn-row">
+      <button class="icon-btn" id="fullscreen" title="Fullscreen" aria-label="Fullscreen">⤢</button>
+      <button class="icon-btn" id="hide" title="Hide panel (H)" aria-label="Hide panel">×</button>
+    </div>
+  </div>
+
+  <div class="panel-body">
+    <section>
+      <h2>Colours</h2>
+      <div class="swatch">
+        <input type="color" id="bg-color" aria-label="Background colour">
+        <input type="text" id="bg-hex" maxlength="7" spellcheck="false" aria-label="Background hex">
+        <span class="hint">Background</span>
+      </div>
+      <div class="swatches" id="swatches"></div>
+      <div class="btn-row">
+        <button id="add-color">Add colour</button>
+        <button id="reshuffle-colors">Reshuffle colours</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Ring</h2>
+      <div class="row"><label for="count">Pieces</label><output data-for="count"></output><input type="range" id="count" min="40" max="600" step="1"></div>
+      <div class="row"><label for="radius">Size</label><output data-for="radius"></output><input type="range" id="radius" min="0.15" max="0.48" step="0.005"></div>
+      <div class="row"><label for="thickness">Band width</label><output data-for="thickness"></output><input type="range" id="thickness" min="0.1" max="0.7" step="0.01"></div>
+      <div class="row"><label for="scatter">Scatter inside</label><output data-for="scatter"></output><input type="range" id="scatter" min="0" max="0.4" step="0.01"></div>
+      <div class="row"><label for="pieceSize">Piece size</label><output data-for="pieceSize"></output><input type="range" id="pieceSize" min="0.008" max="0.05" step="0.001"></div>
+      <div class="row"><label for="squares">Squares vs dots</label><output data-for="squares"></output><input type="range" id="squares" min="0" max="1" step="0.01"></div>
+      <button id="shuffle">Shuffle layout</button>
+    </section>
+
+    <section>
+      <h2>Ambient motion</h2>
+      <div class="row"><label for="rotation">Rotation</label><output data-for="rotation"></output><input type="range" id="rotation" min="-12" max="12" step="0.1"></div>
+      <div class="row"><label for="drift">Drift</label><output data-for="drift"></output><input type="range" id="drift" min="0" max="1" step="0.01"></div>
+      <div class="row"><label for="breathe">Breathe</label><output data-for="breathe"></output><input type="range" id="breathe" min="0" max="0.08" step="0.001"></div>
+      <div class="row"><label for="twinkle">Twinkle</label><output data-for="twinkle"></output><input type="range" id="twinkle" min="0" max="1" step="0.01"></div>
+    </section>
+
+    <section>
+      <h2>Pointer</h2>
+      <div class="seg" role="group" aria-label="Pointer effect">
+        <button data-mode="repel">Repel</button>
+        <button data-mode="attract">Attract</button>
+        <button data-mode="swirl">Swirl</button>
+      </div>
+      <div class="row"><label for="reach">Reach</label><output data-for="reach"></output><input type="range" id="reach" min="0.05" max="0.6" step="0.01"></div>
+      <div class="row"><label for="strength">Strength</label><output data-for="strength"></output><input type="range" id="strength" min="0" max="2" step="0.01"></div>
+      <div class="row"><label for="grow">Grow near pointer</label><output data-for="grow"></output><input type="range" id="grow" min="0" max="2" step="0.01"></div>
+      <div class="row"><label for="spring">Return speed</label><output data-for="spring"></output><input type="range" id="spring" min="0.01" max="0.2" step="0.005"></div>
+    </section>
+
+    <section>
+      <h2>Settings</h2>
+      <p class="hint">Copy this to keep a version, or paste one in and apply it.</p>
+      <textarea id="json" spellcheck="false" aria-label="Settings as JSON"></textarea>
+      <div class="btn-row">
+        <button id="copy">Copy</button>
+        <button id="apply">Apply</button>
+        <button id="reset">Reset all</button>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <p class="hint">Press <kbd>H</kbd> to hide this panel for presenting. Changes are remembered in this browser.</p>
+    </section>
+  </div>
+</aside>
+
+<button class="reveal" id="reveal" hidden>Show settings</button>
+
+<script>
+(() => {
+  const DEFAULTS = {
+    background: "#042632",
+    colors: ["#C8DAFF", "#FFAE8B", "#FFCBE3"],
+    count: 260,
+    radius: 0.27,        // outer ring radius, as a share of the shorter screen side
+    thickness: 0.36,     // band width, as a share of the radius
+    scatter: 0.12,       // share of pieces scattered inside the ring
+    pieceSize: 0.021,    // piece width, as a share of the radius (doubled when drawn)
+    squares: 0.5,
+    rotation: 1.5,       // degrees per second
+    drift: 0.35,
+    breathe: 0.012,
+    twinkle: 0.15,
+    mode: "repel",
+    reach: 0.22,         // pointer reach, as a share of the shorter screen side
+    strength: 0.9,
+    grow: 0.6,
+    spring: 0.06,
+    seed: 20260423
+  };
+  const STORE_KEY = "confetti-ring-settings";
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let S = load();
+
+  // ---------- Layout ----------
+  function rng(seed) {
+    let t = seed >>> 0;
+    return () => {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  let pieces = [];
+  function build() {
+    const rand = rng(S.seed);
+    const inner = 1 - S.thickness;
+    // Keep pieces from landing on top of each other: roughly 0.7 of an even spacing across the band.
+    const minGap = 0.7 * Math.sqrt(Math.PI * (1 - inner * inner) / S.count);
+    const placed = [];
+    const old = pieces;
+    pieces = [];
+    for (let i = 0; i < S.count; i++) {
+      let x, y, tries = 0;
+      const inside = rand() < S.scatter;
+      do {
+        const a = rand() * Math.PI * 2;
+        // Band pieces fill the annulus evenly by area; scattered ones sit loosely in the middle.
+        const r = inside
+          ? Math.sqrt(0.12 + rand() * (Math.pow(inner * 0.92, 2) - 0.12)) * 1
+          : Math.sqrt(inner * inner + rand() * (1 - inner * inner));
+        x = Math.cos(a) * r; y = Math.sin(a) * r;
+        tries++;
+      } while (tries < 60 && placed.some(p => (p.x - x) ** 2 + (p.y - y) ** 2 < minGap * minGap));
+      placed.push({ x, y });
+      const prev = old[i];
+      pieces.push({
+        hx: x, hy: y,
+        x: prev ? prev.x : 0, y: prev ? prev.y : 0,
+        vx: 0, vy: 0,
+        shapeRoll: rand(),
+        colorRoll: rand(),
+        phase: rand() * Math.PI * 2,
+        freq: 0.25 + rand() * 0.5,
+        scale: 1, fresh: !prev
+      });
+    }
+  }
+  function reshuffleColors() {
+    const rand = rng(Math.random() * 1e9);
+    pieces.forEach(p => { p.colorRoll = rand(); });
+  }
+
+  // ---------- Canvas ----------
+  const canvas = document.getElementById("stage");
+  const ctx = canvas.getContext("2d");
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  }
+  window.addEventListener("resize", resize);
+
+  const pointer = { x: -1e6, y: -1e6, active: false, ease: 0 };
+  canvas.addEventListener("pointermove", e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+  canvas.addEventListener("pointerdown", e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+  canvas.addEventListener("pointerleave", () => { pointer.active = false; });
+  canvas.addEventListener("pointerup", e => { if (e.pointerType !== "mouse") pointer.active = false; });
+
+  let angle = 0, last = performance.now(), firstFrame = true;
+  function frame(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    const t = now / 1000;
+    const motion = reduceMotion ? 0.15 : 1;
+
+    angle += (S.rotation * Math.PI / 180) * dt * motion;
+    pointer.ease += ((pointer.active ? 1 : 0) - pointer.ease) * 0.08;
+
+    const short = Math.min(W, H);
+    const cx = W / 2, cy = H / 2;
+    const R = short * S.radius * (1 + Math.sin(t * 0.6) * S.breathe * motion);
+    const size = R * S.pieceSize * 2;
+    const reach = short * S.reach;
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const colors = S.colors.length ? S.colors : ["#ffffff"];
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = S.background;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const p of pieces) {
+      // Home position: rotated ring plus a slow, per-piece wander.
+      const wob = S.drift * size * 1.6 * motion;
+      const hx = cx + (p.hx * cosA - p.hy * sinA) * R + Math.sin(t * p.freq + p.phase) * wob;
+      const hy = cy + (p.hx * sinA + p.hy * cosA) * R + Math.cos(t * p.freq * 0.8 + p.phase * 1.3) * wob;
+      if (p.fresh || firstFrame) { p.x = hx; p.y = hy; p.fresh = false; }
+
+      let ax = (hx - p.x) * S.spring, ay = (hy - p.y) * S.spring;
+      let near = 0;
+      if (pointer.ease > 0.01) {
+        const dx = p.x - pointer.x, dy = p.y - pointer.y;
+        const d = Math.hypot(dx, dy) || 0.001;
+        if (d < reach) {
+          near = (1 - d / reach) ** 2 * pointer.ease;
+          const f = near * S.strength * reach * 0.06;
+          const nx = dx / d, ny = dy / d;
+          if (S.mode === "repel") { ax += nx * f; ay += ny * f; }
+          else if (S.mode === "attract") { ax -= nx * f * 0.7; ay -= ny * f * 0.7; }
+          else { ax += (-ny * 1.1 + nx * 0.25) * f; ay += (nx * 1.1 + ny * 0.25) * f; }
+        }
+      }
+      p.vx = (p.vx + ax) * 0.82; p.vy = (p.vy + ay) * 0.82;
+      p.x += p.vx; p.y += p.vy;
+
+      const targetScale = 1 + near * S.grow;
+      p.scale += (targetScale - p.scale) * 0.15;
+      const tw = 1 - S.twinkle * 0.6 * (0.5 + 0.5 * Math.sin(t * p.freq * 2.2 + p.phase * 2));
+      const s = size * p.scale;
+
+      ctx.globalAlpha = tw;
+      ctx.fillStyle = colors[Math.floor(p.colorRoll * colors.length) % colors.length];
+      if (p.shapeRoll < S.squares) {
+        ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, s * 0.52, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    firstFrame = false;
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Controls ----------
+  const $ = id => document.getElementById(id);
+  const sliders = ["count", "radius", "thickness", "scatter", "pieceSize", "squares", "rotation", "drift", "breathe", "twinkle", "reach", "strength", "grow", "spring"];
+  const rebuilders = new Set(["count", "thickness", "scatter"]);
+  const fmt = {
+    count: v => v,
+    rotation: v => `${(+v).toFixed(1)}°/s`,
+    squares: v => `${Math.round(v * 100)}%`,
+    scatter: v => `${Math.round(v * 100)}%`,
+    thickness: v => `${Math.round(v * 100)}%`
+  };
+  const show = (k, v) => { const o = document.querySelector(`output[data-for="${k}"]`); if (o) o.textContent = fmt[k] ? fmt[k](v) : (+v).toFixed(2); };
+
+  sliders.forEach(k => {
+    const el = $(k);
+    el.addEventListener("input", () => {
+      S[k] = +el.value;
+      show(k, el.value);
+      if (rebuilders.has(k)) build();
+      changed();
+    });
+  });
+
+  document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
+    S.mode = b.dataset.mode; syncMode(); changed();
+  }));
+  function syncMode() {
+    document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
+  }
+
+  const HEX = /^#?[0-9a-f]{6}$/i;
+  const norm = v => ("#" + v.replace("#", "")).toUpperCase();
+  function bindColor(picker, text, get, set) {
+    picker.value = get().toLowerCase();
+    text.value = get().toUpperCase();
+    picker.addEventListener("input", () => { set(norm(picker.value)); text.value = norm(picker.value); text.classList.remove("bad"); changed(); });
+    text.addEventListener("input", () => {
+      const ok = HEX.test(text.value.trim());
+      text.classList.toggle("bad", !ok);
+      if (ok) { set(norm(text.value.trim())); picker.value = norm(text.value.trim()).toLowerCase(); changed(); }
+    });
+  }
+
+  function renderSwatches() {
+    const box = $("swatches");
+    box.innerHTML = "";
+    S.colors.forEach((c, i) => {
+      const row = document.createElement("div");
+      row.className = "swatch";
+      row.innerHTML = `<input type="color" id="c${i}" aria-label="Colour ${i + 1}"><input type="text" id="c${i}-hex" maxlength="7" spellcheck="false" aria-label="Colour ${i + 1} hex"><button class="icon-btn" aria-label="Remove colour ${i + 1}" title="Remove">−</button>`;
+      box.appendChild(row);
+      const [picker, text, remove] = row.children;
+      bindColor(picker, text, () => S.colors[i], v => { S.colors[i] = v; });
+      remove.disabled = S.colors.length <= 1;
+      remove.addEventListener("click", () => { S.colors.splice(i, 1); renderSwatches(); changed(); });
+    });
+  }
+  $("add-color").addEventListener("click", () => {
+    const h = Math.floor(Math.random() * 360);
+    S.colors.push(hslHex(h, 90, 82));
+    renderSwatches(); changed();
+  });
+  $("reshuffle-colors").addEventListener("click", reshuffleColors);
+  $("shuffle").addEventListener("click", () => { S.seed = Math.floor(Math.random() * 1e9); build(); changed(); });
+
+  function hslHex(h, s, l) {
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = n => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))))).toString(16).padStart(2, "0");
+    return ("#" + f(0) + f(8) + f(4)).toUpperCase();
+  }
+
+  // ---------- Panel ----------
+  const panel = $("panel"), reveal = $("reveal");
+  function setPanel(open) { panel.classList.toggle("is-hidden", !open); reveal.hidden = open; }
+  $("hide").addEventListener("click", () => setPanel(false));
+  reveal.addEventListener("click", () => setPanel(true));
+  window.addEventListener("keydown", e => {
+    if (e.target.matches("input[type=text], textarea")) return;
+    if (e.key === "h" || e.key === "H") setPanel(panel.classList.contains("is-hidden"));
+  });
+  $("fullscreen").addEventListener("click", () => {
+    const el = document.documentElement;
+    const p = document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen?.();
+    p?.catch?.(() => status("Fullscreen isn't available here."));
+  });
+
+  // ---------- Settings I/O ----------
+  let statusTimer;
+  function status(msg) { $("status").textContent = msg; clearTimeout(statusTimer); statusTimer = setTimeout(() => $("status").textContent = "", 2600); }
+  function writeJson() { $("json").value = JSON.stringify(S, null, 2); }
+  let saveTimer;
+  function changed() {
+    writeJson();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {} }, 250);
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) return sanitize(JSON.parse(raw));
+    } catch (e) {}
+    return structuredClone(DEFAULTS);
+  }
+  function sanitize(o) {
+    const out = structuredClone(DEFAULTS);
+    for (const k in DEFAULTS) {
+      if (!(k in o)) continue;
+      if (k === "colors") {
+        const list = Array.isArray(o.colors) ? o.colors.filter(c => typeof c === "string" && HEX.test(c)).map(norm) : [];
+        if (list.length) out.colors = list;
+      } else if (k === "background") {
+        if (typeof o.background === "string" && HEX.test(o.background)) out.background = norm(o.background);
+      } else if (k === "mode") {
+        if (["repel", "attract", "swirl"].includes(o.mode)) out.mode = o.mode;
+      } else if (typeof o[k] === "number" && isFinite(o[k])) {
+        const el = document.getElementById(k);
+        out[k] = el ? Math.min(+el.max, Math.max(+el.min, o[k])) : o[k];
+      }
+    }
+    return out;
+  }
+  function syncAll() {
+    sliders.forEach(k => { $(k).value = S[k]; show(k, S[k]); });
+    syncMode();
+    renderSwatches();
+    const bgPicker = $("bg-color").cloneNode(true), bgText = $("bg-hex").cloneNode(true);
+    $("bg-color").replaceWith(bgPicker); $("bg-hex").replaceWith(bgText);
+    bindColor(bgPicker, bgText, () => S.background, v => { S.background = v; document.body.style.background = v; });
+    document.body.style.background = S.background;
+    writeJson();
+  }
+
+  $("copy").addEventListener("click", () => {
+    const text = $("json").value;
+    navigator.clipboard?.writeText(text).then(() => status("Settings copied."), () => { $("json").select(); status("Press Ctrl+C (or Cmd+C) to copy."); })
+      ?? ($("json").select(), status("Press Ctrl+C (or Cmd+C) to copy."));
+  });
+  $("apply").addEventListener("click", () => {
+    try {
+      S = sanitize(JSON.parse($("json").value));
+      build(); syncAll(); changed(); status("Settings applied.");
+    } catch (e) { status("That isn't valid settings JSON. Check for a missing comma or bracket."); }
+  });
+  $("reset").addEventListener("click", () => {
+    S = structuredClone(DEFAULTS);
+    build(); syncAll(); changed(); status("Back to the original look.");
+  });
+
+  // ---------- Boot ----------
+  if (reduceMotion) status("Reduced motion is on, so ambient movement is toned down.");
+  resize();
+  // sanitize clamps against the slider ranges, so run it once the DOM is ready.
+  S = sanitize(S);
+  build();
+  syncAll();
+  requestAnimationFrame(t => { last = t; frame(t); });
+})();
+</script>
